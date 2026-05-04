@@ -576,6 +576,17 @@ a {
   font-weight: 700;
 }
 
+.source-card .source-upload-note {
+  display: block;
+  color: #555;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.source-card small.upload-filename {
+  word-break: break-all;
+}
+
 .source-card small {
   color: #888;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -623,6 +634,33 @@ a {
   color: #6b2d12;
   background: rgba(255, 237, 230, 0.95);
   border-color: rgba(180, 83, 9, 0.22);
+}
+
+.generating-hint {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #666;
+  max-width: 520px;
+}
+
+.image-search-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(180, 83, 9, 0.28);
+  background: rgba(255, 248, 235, 0.95);
+  color: #7a3e00;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.image-search-banner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .appearance-detail-card .ai-json-preview {

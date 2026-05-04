@@ -60,6 +60,9 @@ def file_path(job_id: str, filename: str) -> Path:
         "source_manifest.json",
         "image_features.json",
         "vision_report.json",
+        "image_search_results.json",
+        "selected_image.json",
+        "visual_recipe.json",
     }
     if filename not in allowed:
         raise HTTPException(status_code=404, detail="Unsupported file")

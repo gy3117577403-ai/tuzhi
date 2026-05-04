@@ -16,6 +16,8 @@ ModelOrigin = Literal[
     "parametric_mvp",
     "series_template",
     "image_approximated",
+    "image_search_approximated",
+    "image_upload_approximated",
     "generic_mvp",
 ]
 SourceType = Literal["official_cad", "official_candidate", "third_party", "not_found", "local_test"]
@@ -87,6 +89,11 @@ class ConnectorCadParams(BaseModel):
     image_feature_summary: dict[str, Any] | None = None
     vision_report_summary: dict[str, Any] | None = None
     image_fallback_warning: str | None = None
+    visual_recipe: dict[str, Any] | None = None
+    geometry_basis: str | None = None
+    manufacturing_accuracy: str | None = None
+    image_search_context: dict[str, Any] | None = None
+    uploaded_file_name: str | None = None
 
 
 DEFAULT_DIMENSIONS: dict[str, DimensionValue] = {

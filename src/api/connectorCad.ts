@@ -28,6 +28,9 @@ export type ConnectorJob = {
     source_manifest: string;
     image_features?: string;
     vision_report?: string;
+    image_search_results?: string;
+    selected_image?: string;
+    visual_recipe?: string;
   };
   source_manifest_url?: string;
   source_domain?: Record<string, any>;

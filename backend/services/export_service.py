@@ -8,6 +8,10 @@ from services.connector_params import ConnectorCadParams
 
 def export_job_files(params: ConnectorCadParams, output_dir: Path) -> dict[str, Path]:
     origin = params.model_origin
+    if origin in ("image_search_approximated", "image_upload_approximated"):
+        from services.visual_cad_generator import export_visual_proxy_job
+
+        return export_visual_proxy_job(params, output_dir)
     if origin in ("series_template", "image_approximated", "generic_mvp", "parametric_mvp"):
         from services.appearance_cad_generator import export_appearance_job
 

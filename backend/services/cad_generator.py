@@ -101,6 +101,11 @@ def normalize_cad_params(params: dict[str, Any] | ConnectorCadParams) -> dict[st
             "image_feature_summary": params.image_feature_summary,
             "vision_report_summary": params.vision_report_summary,
             "image_fallback_warning": params.image_fallback_warning,
+            "uploaded_file_name": params.uploaded_file_name,
+            "visual_recipe": params.visual_recipe,
+            "geometry_basis": params.geometry_basis,
+            "manufacturing_accuracy": params.manufacturing_accuracy,
+            "image_search_context": params.image_search_context,
             "dimension_meta": {
                 "positions": params.dimensions["pin_count"],
                 "pitch_mm": params.dimensions["pin_pitch"],
@@ -166,6 +171,11 @@ def normalize_cad_params(params: dict[str, Any] | ConnectorCadParams) -> dict[st
     normalized.setdefault("image_feature_summary", None)
     normalized.setdefault("vision_report_summary", None)
     normalized.setdefault("image_fallback_warning", None)
+    normalized.setdefault("uploaded_file_name", None)
+    normalized.setdefault("visual_recipe", None)
+    normalized.setdefault("geometry_basis", None)
+    normalized.setdefault("manufacturing_accuracy", None)
+    normalized.setdefault("image_search_context", None)
     return normalized
 
 
@@ -293,7 +303,7 @@ def write_params_json(original_params: dict[str, Any] | ConnectorCadParams, para
         "source_domain_category": params.get("source_domain_category"),
         "source_domain_approved": params.get("source_domain_approved"),
         "file_hashes": params.get("file_hashes", {}),
-        "disclaimer": PARAMETRIC_DISCLAIMER,
+        "disclaimer": params.get("disclaimer") or PARAMETRIC_DISCLAIMER,
         "warning": params.get("warning"),
         "dimensions": {
             key: _dimension_payload(key, params, dimension_meta)
@@ -314,6 +324,13 @@ def write_params_json(original_params: dict[str, Any] | ConnectorCadParams, para
         "preview_style": params.get("preview_style"),
         "appearance_pipeline": params.get("appearance_pipeline"),
         "image_fallback_warning": params.get("image_fallback_warning"),
+        "visual_recipe": params.get("visual_recipe"),
+        "geometry_basis": params.get("geometry_basis"),
+        "manufacturing_accuracy": params.get("manufacturing_accuracy"),
+        "image_search_context": params.get("image_search_context"),
+        "image_feature_summary": params.get("image_feature_summary"),
+        "vision_report_summary": params.get("vision_report_summary"),
+        "uploaded_file_name": params.get("uploaded_file_name"),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

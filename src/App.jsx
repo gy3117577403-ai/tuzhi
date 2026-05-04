@@ -278,6 +278,11 @@ export default function App() {
               {isBusy ? <Loader2 className="spin" size={17} /> : <Box size={17} />}
               <span>{isBusy ? WORKFLOW_STATUS[status].label : '生成 CAD 文件'}</span>
             </button>
+            {isBusy && activeTab === 'text' && (
+              <p className="generating-hint">
+                正在搜尋相關產品圖 → 排序可信圖片 → 提取外觀特徵 → 生成視覺近似 CAD（若未設定圖片搜尋 API，將自動回退既有流程）。
+              </p>
+            )}
             {error && <ErrorMessage error={error} />}
           </section>
         </main>
@@ -308,6 +313,17 @@ export default function App() {
                 <RefreshCw size={15} className={isBusy ? 'spin' : ''} />
               </button>
             </div>
+            {(job.params?.model_origin === 'image_search_approximated'
+              || job.params?.model_origin === 'image_upload_approximated') && (
+              <div className="image-search-banner" role="alert">
+                <AlertTriangle size={17} />
+                <span>
+                  {job.params?.model_origin === 'image_upload_approximated'
+                    ? '图片驱动外观近似 CAD。依据上传图片生成，仅用于外观预览，不代表原厂 CAD，不可直接作为制造尺寸依据。'
+                    : '圖片搜尋驅動外觀近似 CAD。依網路圖片生成，僅供外觀預覽，不代表原廠 CAD，不可直接作為製造尺寸依據。'}
+                </span>
+              </div>
+            )}
             <SourcePanel job={job} />
             <AppearanceDetailPanel job={job} />
             <AiExtractionPanel job={job} />
@@ -383,8 +399,9 @@ function OriginPill({ job }) {
     o === 'official_cad' ? 'origin-official'
       : o === 'series_template' ? 'origin-series'
         : o === 'image_approximated' ? 'origin-image'
-          : o === 'third_party_cad' ? 'origin-third'
-            : 'origin-generic';
+          : o === 'image_search_approximated' || o === 'image_upload_approximated' ? 'origin-image'
+            : o === 'third_party_cad' ? 'origin-third'
+              : 'origin-generic';
   return <span className={`origin-pill ${tone}`}>{label}</span>;
 }
 
@@ -392,6 +409,8 @@ function appearanceOriginLabel(origin) {
   if (origin === 'official_cad') return '官方 CAD';
   if (origin === 'series_template') return '系列模板近似模型';
   if (origin === 'image_approximated') return '图片驱动外观近似模型';
+  if (origin === 'image_search_approximated') return '圖片搜尋驅動外觀近似';
+  if (origin === 'image_upload_approximated') return '上傳圖片驅動外觀近似';
   if (origin === 'generic_mvp') return '通用参数化白模';
   if (origin === 'third_party_cad') return '第三方 CAD';
   if (origin === 'parametric_mvp') return '通用参数化近似（旧）';
@@ -404,24 +423,60 @@ function AppearanceDetailPanel({ job }) {
   if (!ap?.used && !p.template_name) return null;
   const vm = p.visual_match || {};
   const imgSum = p.image_feature_summary;
+  const iff = imgSum?.feature_flags || {};
+  const uploadFeat = p.model_origin === 'image_upload_approximated';
   return (
     <>
       <div className="section-label">外形与模板</div>
       <div className="audit-card appearance-detail-card">
+        {uploadFeat && imgSum && (
+          <>
+            <div className="section-label subtle">上傳圖片特徵</div>
+            <AuditRow label="檔名" value={p.uploaded_file_name || '—'} mono />
+            <AuditRow label="主色（dominant_color）" value={String(imgSum.dominant_color ?? '—')} />
+            <AuditRow label="正面佈局（front_face_layout）" value={JSON.stringify(imgSum.front_face_layout || {})} />
+            <AuditRow label="特徵旗標（feature_flags）" value={JSON.stringify(iff)} />
+            {Array.isArray(imgSum.warnings) && imgSum.warnings.length > 0 ? (
+              <AuditRow label="影像警告" value={imgSum.warnings.join('；')} />
+            ) : null}
+            {Array.isArray(p.visual_recipe?.warnings) && p.visual_recipe.warnings.length > 0 ? (
+              <AuditRow label="配方警告" value={p.visual_recipe.warnings.join('；')} />
+            ) : null}
+          </>
+        )}
         <AuditRow label="模板名称" value={p.template_name || ap?.template_name || '—'} />
         <AuditRow label="外观置信度" value={p.appearance_confidence || '—'} />
         <AuditRow label="匹配来源" value={vm.selection_reason || ap?.selection_reason || '—'} />
         <AuditRow label="预览色（示意）" value={p.preview_style?.base_color || ap?.preview_color || '—'} />
+        <AuditRow label="几何基础" value={p.geometry_basis || '—'} />
+        <AuditRow label="制造精度等级" value={p.manufacturing_accuracy || '—'} />
+        {p.image_search_context?.search && (
+          <>
+            <div className="section-label subtle">圖片搜尋</div>
+            <pre className="ai-json-preview">{JSON.stringify(p.image_search_context.search, null, 2).slice(0, 900)}</pre>
+          </>
+        )}
+        {p.visual_recipe && (
+          <>
+            <div className="section-label subtle">視覺配方（visual_recipe）</div>
+            <pre className="ai-json-preview">{JSON.stringify(p.visual_recipe, null, 2).slice(0, 1400)}{JSON.stringify(p.visual_recipe, null, 2).length > 1400 ? '…' : ''}</pre>
+          </>
+        )}
         {p.model_origin === 'series_template' && (
           <div className="appearance-warn">该模型依据连接器系列模板生成，外形近似，非原厂精确 CAD。</div>
         )}
         {p.model_origin === 'image_approximated' && (
           <div className="appearance-warn appearance-warn-strong">该模型依据图片外观近似生成，仅用于形态预览，不代表制造级精确 CAD。</div>
         )}
+        {(p.model_origin === 'image_search_approximated' || p.model_origin === 'image_upload_approximated') && (
+          <div className="appearance-warn appearance-warn-strong">
+            視覺形狀語法（非逐型號模板庫）生成的外觀代理模型；尺寸為工程假設，須人工確認。
+          </div>
+        )}
         {p.image_fallback_warning && (
           <div className="appearance-warn">{p.image_fallback_warning}</div>
         )}
-        {imgSum && (
+        {imgSum && !uploadFeat && (
           <>
             <div className="section-label subtle">图像特征摘要</div>
             <pre className="ai-json-preview">{JSON.stringify(imgSum, null, 2).slice(0, 1200)}{JSON.stringify(imgSum, null, 2).length > 1200 ? '…' : ''}</pre>
@@ -471,10 +526,22 @@ function AiExtractionPanel({ job }) {
 
 function SourcePanel({ job }) {
   const params = job.params || {};
+  const uploadVisual = params.model_origin === 'image_upload_approximated';
   return (
     <div className={`source-card ${dangerSource(job) ? 'danger-source' : ''}`}>
       <strong>{modelSourceTitle(job)}</strong>
       <span>{modelSourceSubtitle(job)}</span>
+      {uploadVisual && (
+        <>
+          <em>圖片驅動外觀近似 CAD</em>
+          <span className="source-upload-note">
+            依據上傳圖片生成，僅用於外觀預覽，不代表原廠 CAD，不可直接作為製造尺寸依據。
+          </span>
+          {params.uploaded_file_name ? (
+            <small className="upload-filename">已選／上傳檔名（伺服端）：{params.uploaded_file_name}</small>
+          ) : null}
+        </>
+      )}
       {params.source_type === 'official_candidate' && <em>检测到待审核 CAD 来源，但当前未用于生成。</em>}
       {(params.model_origin === 'parametric_mvp' || params.model_origin === 'generic_mvp') && (
         <em>参数化工程近似模型，不是原厂 CAD。</em>
@@ -1011,8 +1078,14 @@ function DownloadPanel({ job }) {
   const official = params.model_origin === 'official_cad';
   const completed = job.status === 'completed';
   const ap = params.appearance_pipeline || {};
-  const showImg = ap.image_features_file && job.files?.image_features;
-  const showVision = ap.vision_report_file && job.files?.vision_report;
+  const uploadVisual = params.model_origin === 'image_upload_approximated';
+  const showImg =
+    job.files?.image_features && (ap.image_features_file || uploadVisual);
+  const showVision =
+    job.files?.vision_report && (ap.vision_report_file || uploadVisual);
+  const showSearch = job.files?.image_search_results;
+  const showSel = job.files?.selected_image;
+  const showRecipe = job.files?.visual_recipe || params.visual_recipe;
   return (
     <>
       <div className="section-label">导出文件</div>
@@ -1028,6 +1101,15 @@ function DownloadPanel({ job }) {
         {showVision ? (
           <a href={fileUrl(job, 'vision_report')} download><span>下载视觉理解 JSON</span><Code size={14} /></a>
         ) : null}
+        {showSearch ? (
+          <a href={fileUrl(job, 'image_search_results')} download><span>下载图片搜索结果 JSON</span><Code size={14} /></a>
+        ) : null}
+        {showSel ? (
+          <a href={fileUrl(job, 'selected_image')} download><span>下载选中参考图元数据 JSON</span><Code size={14} /></a>
+        ) : null}
+        {showRecipe && job.files?.visual_recipe ? (
+          <a href={fileUrl(job, 'visual_recipe')} download><span>下载视觉配方 JSON</span><Code size={14} /></a>
+        ) : null}
       </div>
     </>
   );
@@ -1039,6 +1121,8 @@ function modelSourceTitle(job) {
   if (params.model_origin === 'third_party_cad' || params.source_type === 'third_party') return '第三方 CAD 模型';
   if (params.model_origin === 'series_template') return '系列模板近似模型';
   if (params.model_origin === 'image_approximated') return '图片驱动外观近似';
+  if (params.model_origin === 'image_search_approximated') return '圖片搜尋驅動外觀近似模型';
+  if (params.model_origin === 'image_upload_approximated') return '上傳圖片驅動外觀近似模型';
   if (params.model_origin === 'generic_mvp') return '通用参数化白模';
   return '参数化工程近似模型';
 }
@@ -1049,6 +1133,8 @@ function modelSourceSubtitle(job) {
   if (params.model_origin === 'third_party_cad' || params.source_type === 'third_party') return '第三方模型，需核验';
   if (params.model_origin === 'series_template') return '系列模板外形近似，非原厂 CAD；关键尺寸需确认';
   if (params.model_origin === 'image_approximated') return '依据上传图像的外观近似模型，非计量级精确 CAD';
+  if (params.model_origin === 'image_search_approximated') return '依網路搜尋圖片之外觀近似；須人工確認尺寸';
+  if (params.model_origin === 'image_upload_approximated') return '依上傳圖片之外觀近似；須人工確認尺寸';
   if (params.model_origin === 'generic_mvp') return '升级版通用参数化白模；仅工程近似预览';
   return '需人工确认关键尺寸，不是原厂精确 CAD';
 }
@@ -1058,12 +1144,17 @@ function originText(origin) {
   if (origin === 'third_party_cad') return '第三方 CAD';
   if (origin === 'series_template') return '系列模板近似';
   if (origin === 'image_approximated') return '图片近似';
+  if (origin === 'image_search_approximated') return '圖片搜尋近似';
+  if (origin === 'image_upload_approximated') return '上傳圖片近似';
   if (origin === 'generic_mvp') return '通用白模';
   return '参数化 MVP';
 }
 
 function sourceCategoryText(category, origin) {
-  if (origin === 'generic_mvp' || origin === 'series_template' || origin === 'image_approximated') return '参数化 / 模板外形近似，不是原厂 CAD';
+  if (origin === 'generic_mvp' || origin === 'series_template' || origin === 'image_approximated'
+    || origin === 'image_search_approximated' || origin === 'image_upload_approximated') {
+    return '參數化 / 視覺近似，不是原廠 CAD';
+  }
   if (origin === 'parametric_mvp') return '参数化工程近似模型，不是原厂 CAD';
   if (category === 'official_manufacturer') return '厂家官方来源';
   if (category === 'authorized_distributor') return '授权经销商来源';

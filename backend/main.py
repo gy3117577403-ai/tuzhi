@@ -47,7 +47,10 @@ from services.domain_policy import classify_source_url
 from services.export_service import export_job_files
 from services.file_store import create_job_dir, file_path, load_params, new_job_id, save_params, save_upload
 from services.official_cad_downloader import can_use_official_cad, download_official_cad, write_official_params
-from services.source_audit import augment_params_json, create_source_manifest, summarize_manifest
+from services.search_to_cad_pipeline import (
+    generate_cad_from_search,
+    merge_image_search_fallback_notice,
+)
 from services.registry_history import get_registry_item_history, verify_registry_history_signatures
 from services.registry_search import get_registry_stats, search_registry_items
 
@@ -61,6 +64,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class ImageSearchJobRequest(BaseModel):
+    query: str
+    selected_image_url: str = ""
 
 
 class OfficialUrlJobRequest(BaseModel):
@@ -150,7 +158,12 @@ async def create_job(request: Request) -> dict[str, Any]:
     params = apply_cad_source_metadata(params, cad_source)
 
     if input_type == "text" and (text or "").strip():
-        params = configure_text_appearance_pipeline(params, text.strip())
+        tried, search_meta = generate_cad_from_search((text or "").strip(), output_dir, params, None)
+        if tried is not None:
+            params = tried
+        else:
+            params = configure_text_appearance_pipeline(params, text.strip())
+            params = merge_image_search_fallback_notice(params, search_meta)
     elif input_type in ("photo", "drawing") and is_image_upload(filename):
         params = configure_image_appearance_pipeline(params, output_dir, filename, text)
     elif input_type in ("photo", "drawing"):
@@ -176,6 +189,45 @@ async def create_job(request: Request) -> dict[str, Any]:
         params = params.model_copy(update={"ai_extraction": _ai_extraction_skipped_block()})
 
     params = apply_confirmed_params(params, incoming_params)
+    try:
+        generated_files = export_job_files(params, output_dir)
+        params = finalize_source_audit(job_id, output_dir, params, {**cad_source, "official_cad_downloaded": False}, generated_files)
+        save_params(job_id, params)
+    except Exception as exc:
+        params = mark_failed(params, str(exc))
+        save_params(job_id, params)
+    return job_payload(job_id, params)
+
+
+@app.post("/api/connector-cad/jobs/from-image-search")
+def create_job_from_image_search(payload: ImageSearchJobRequest) -> dict[str, Any]:
+    job_id = new_job_id()
+    output_dir = create_job_dir(job_id)
+    q = (payload.query or "").strip()
+    cad_source = cad_source_resolver.resolve(text=q)
+    if can_use_official_cad(cad_source):
+        params = build_official_params(input_type="text", text=q, cad_source=cad_source)
+        params = params.model_copy(update={"ai_extraction": _ai_extraction_skipped_block()})
+        try:
+            generated_files = download_official_cad(cad_source, output_dir)
+            write_official_params(params, output_dir)
+            params = finalize_source_audit(job_id, output_dir, params, {**cad_source, "official_cad_downloaded": True}, generated_files)
+            save_params(job_id, params)
+            note_registry_used_in_job(cad_source, job_id)
+        except Exception as exc:
+            params = mark_failed(params, str(exc))
+            save_params(job_id, params)
+        return job_payload(job_id, params)
+
+    params = build_initial_params(input_type="text", text=q, filename=None)
+    params = apply_cad_source_metadata(params, cad_source)
+    sel_url = (payload.selected_image_url or "").strip() or None
+    tried, search_meta = generate_cad_from_search(q, output_dir, params, sel_url)
+    if tried is not None:
+        params = tried
+    else:
+        params = configure_text_appearance_pipeline(params, q)
+        params = merge_image_search_fallback_notice(params, search_meta)
     try:
         generated_files = export_job_files(params, output_dir)
         params = finalize_source_audit(job_id, output_dir, params, {**cad_source, "official_cad_downloaded": False}, generated_files)
@@ -403,6 +455,24 @@ def download_vision_report(job_id: str) -> FileResponse:
     return download_file(job_id, "vision_report.json", "application/json")
 
 
+@app.get("/api/connector-cad/jobs/{job_id}/files/image_search_results.json")
+@app.head("/api/connector-cad/jobs/{job_id}/files/image_search_results.json")
+def download_image_search_results(job_id: str) -> FileResponse:
+    return download_file(job_id, "image_search_results.json", "application/json")
+
+
+@app.get("/api/connector-cad/jobs/{job_id}/files/selected_image.json")
+@app.head("/api/connector-cad/jobs/{job_id}/files/selected_image.json")
+def download_selected_image_meta(job_id: str) -> FileResponse:
+    return download_file(job_id, "selected_image.json", "application/json")
+
+
+@app.get("/api/connector-cad/jobs/{job_id}/files/visual_recipe.json")
+@app.head("/api/connector-cad/jobs/{job_id}/files/visual_recipe.json")
+def download_visual_recipe(job_id: str) -> FileResponse:
+    return download_file(job_id, "visual_recipe.json", "application/json")
+
+
 async def parse_job_request(request: Request) -> tuple[InputType, str | None, Any, dict[str, Any], str | None, str | None]:
     content_type = request.headers.get("content-type", "")
     file = None
@@ -513,6 +583,9 @@ def job_payload(job_id: str, params: ConnectorCadParams) -> dict[str, Any]:
             "source_manifest": f"/api/connector-cad/jobs/{job_id}/files/source_manifest.json",
             "image_features": f"/api/connector-cad/jobs/{job_id}/files/image_features.json",
             "vision_report": f"/api/connector-cad/jobs/{job_id}/files/vision_report.json",
+            "image_search_results": f"/api/connector-cad/jobs/{job_id}/files/image_search_results.json",
+            "selected_image": f"/api/connector-cad/jobs/{job_id}/files/selected_image.json",
+            "visual_recipe": f"/api/connector-cad/jobs/{job_id}/files/visual_recipe.json",
         },
     }
 

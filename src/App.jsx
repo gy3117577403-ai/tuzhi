@@ -5,6 +5,7 @@ import {
   Camera,
   CheckCircle2,
   Code,
+  Cpu,
   Database,
   Download,
   FileText,
@@ -28,6 +29,7 @@ import {
   downloadRegistryAuditReport,
   exportCadRegistry,
   fileUrl,
+  getAiApiStatus,
   getCadRegistryCache,
   getCadRegistryItemHistory,
   getCadRegistryStats,
@@ -35,6 +37,7 @@ import {
   importCadRegistry,
   listCadRegistryItems,
   pollConnectorJob,
+  postAiTest,
   repairRegistryCache,
   repairRegistryItemCache,
   refreshCadRegistryCache,
@@ -81,8 +84,46 @@ export default function App() {
   const [showRegistry, setShowRegistry] = useState(false);
   const fileInputRef = useRef(null);
 
+  const [aiApiStatus, setAiApiStatus] = useState(null);
+  const [aiTestFailed, setAiTestFailed] = useState(false);
+  const [aiTestBusy, setAiTestBusy] = useState(false);
+  const [aiTestMessage, setAiTestMessage] = useState('');
+
   const canGenerate = activeTab === 'text' ? inputText.trim().length > 0 : Boolean(file);
   const isBusy = status === 'uploading' || status === 'generating';
+
+  useEffect(() => {
+    let cancelled = false;
+    getAiApiStatus()
+      .then((data) => {
+        if (!cancelled) {
+          setAiApiStatus(data);
+          setAiTestFailed(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAiApiStatus({ configured: false, model: '', key_preview: '' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAiTest = async () => {
+    const sample = inputText.trim() || 'TE 282104-1 2 pin automotive connector pitch 6.0mm';
+    setAiTestBusy(true);
+    setAiTestMessage('');
+    try {
+      const res = await postAiTest(sample);
+      setAiTestFailed(!res.ok);
+      setAiTestMessage(res.ok ? 'AI 測試解析成功' : 'AI 測試解析失敗（仍可使用本地預設參數生成）');
+    } catch (err) {
+      setAiTestFailed(true);
+      setAiTestMessage(err.message || 'AI 測試請求失敗');
+    } finally {
+      setAiTestBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!job?.params?.dimensions) return;
@@ -167,6 +208,21 @@ export default function App() {
           <StatusBadge status={status} />
         </div>
         <div className="top-actions">
+          <div className="ai-toolbar" title={aiApiStatus?.key_preview ? `Key 預覽：${aiApiStatus.key_preview}` : ''}>
+            <Cpu size={14} aria-hidden />
+            <span>
+              AI API：
+              {!aiApiStatus ? '讀取中…' : aiTestFailed ? '測試失敗' : aiApiStatus.configured ? '已配置' : '未配置'}
+            </span>
+            {aiApiStatus?.configured && aiApiStatus.model ? (
+              <span className="ai-model" title={aiApiStatus.model}>{aiApiStatus.model}</span>
+            ) : null}
+            <button type="button" className="small-action" disabled={aiTestBusy} onClick={handleAiTest}>
+              {aiTestBusy ? <Loader2 className="spin" size={12} /> : null}
+              測試 AI 解析
+            </button>
+          </div>
+          {aiTestMessage ? <span className="ai-test-msg">{aiTestMessage}</span> : null}
           <button className="docs-link button-link" onClick={() => setShowRegistry(true)}>
             <Database size={14} />
             CAD 来源库
@@ -210,7 +266,7 @@ export default function App() {
                 />
                 <div className="examples">
                   <span>示例</span>
-                  {['TE 282104-1', 'LOCAL SAMPLE STEP', 'CACHE SAMPLE STEP'].map((item) => (
+                  {['1-968970-1', 'TE 282104-1', 'LOCAL SAMPLE STEP', 'CACHE SAMPLE STEP'].map((item) => (
                     <button key={item} onClick={() => setInputText(item)}>{item}</button>
                   ))}
                 </div>
@@ -231,11 +287,18 @@ export default function App() {
             <div className="viewer-heading">
               <div>
                 <h1>{job.params?.title || job.params?.part_number || '通用矩形连接器'}</h1>
-                <p>{modelSourceSubtitle(job)}</p>
+                <div className="viewer-origin-row">
+                  <OriginPill job={job} />
+                  <p className="viewer-sub">{modelSourceSubtitle(job)}</p>
+                </div>
               </div>
               <button className="icon-button" onClick={reset} title="关闭工作区"><X size={16} /></button>
             </div>
-            <ModelViewer jobId={job.job_id} stlUrl={job.files?.model_stl} />
+            <ModelViewer
+              jobId={job.job_id}
+              stlUrl={job.files?.model_stl}
+              previewBaseColor={job.params?.preview_style?.base_color}
+            />
           </section>
 
           <aside className="inspector">
@@ -246,6 +309,8 @@ export default function App() {
               </button>
             </div>
             <SourcePanel job={job} />
+            <AppearanceDetailPanel job={job} />
+            <AiExtractionPanel job={job} />
             <AuditPanel job={job} />
             <StatusPanel status={status} warning={job.warning || job.params?.warning} />
             {status === 'completed' && <SuccessMessage job={job} />}
@@ -311,6 +376,99 @@ function StatusBadge({ status }) {
   return <span className={`status-badge ${config.tone}`}>{config.label}</span>;
 }
 
+function OriginPill({ job }) {
+  const o = job?.params?.model_origin;
+  const label = appearanceOriginLabel(o);
+  const tone =
+    o === 'official_cad' ? 'origin-official'
+      : o === 'series_template' ? 'origin-series'
+        : o === 'image_approximated' ? 'origin-image'
+          : o === 'third_party_cad' ? 'origin-third'
+            : 'origin-generic';
+  return <span className={`origin-pill ${tone}`}>{label}</span>;
+}
+
+function appearanceOriginLabel(origin) {
+  if (origin === 'official_cad') return '官方 CAD';
+  if (origin === 'series_template') return '系列模板近似模型';
+  if (origin === 'image_approximated') return '图片驱动外观近似模型';
+  if (origin === 'generic_mvp') return '通用参数化白模';
+  if (origin === 'third_party_cad') return '第三方 CAD';
+  if (origin === 'parametric_mvp') return '通用参数化近似（旧）';
+  return '工程近似模型';
+}
+
+function AppearanceDetailPanel({ job }) {
+  const p = job?.params || {};
+  const ap = p.appearance_pipeline;
+  if (!ap?.used && !p.template_name) return null;
+  const vm = p.visual_match || {};
+  const imgSum = p.image_feature_summary;
+  return (
+    <>
+      <div className="section-label">外形与模板</div>
+      <div className="audit-card appearance-detail-card">
+        <AuditRow label="模板名称" value={p.template_name || ap?.template_name || '—'} />
+        <AuditRow label="外观置信度" value={p.appearance_confidence || '—'} />
+        <AuditRow label="匹配来源" value={vm.selection_reason || ap?.selection_reason || '—'} />
+        <AuditRow label="预览色（示意）" value={p.preview_style?.base_color || ap?.preview_color || '—'} />
+        {p.model_origin === 'series_template' && (
+          <div className="appearance-warn">该模型依据连接器系列模板生成，外形近似，非原厂精确 CAD。</div>
+        )}
+        {p.model_origin === 'image_approximated' && (
+          <div className="appearance-warn appearance-warn-strong">该模型依据图片外观近似生成，仅用于形态预览，不代表制造级精确 CAD。</div>
+        )}
+        {p.image_fallback_warning && (
+          <div className="appearance-warn">{p.image_fallback_warning}</div>
+        )}
+        {imgSum && (
+          <>
+            <div className="section-label subtle">图像特征摘要</div>
+            <pre className="ai-json-preview">{JSON.stringify(imgSum, null, 2).slice(0, 1200)}{JSON.stringify(imgSum, null, 2).length > 1200 ? '…' : ''}</pre>
+          </>
+        )}
+        {p.vision_report_summary && (
+          <>
+            <div className="section-label subtle">视觉理解（AI）</div>
+            <pre className="ai-json-preview">{JSON.stringify(p.vision_report_summary, null, 2).slice(0, 800)}</pre>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function AiExtractionPanel({ job }) {
+  const ai = job?.params?.ai_extraction;
+  const dimensions = job?.params?.dimensions || {};
+  if (!ai) return null;
+  const fromAi = Object.entries(dimensions)
+    .filter(([, v]) => v?.source === 'ai_extracted')
+    .map(([k]) => k);
+  const extracted = ai.extracted || {};
+  const pending = (job.params?.unknown_fields || []).filter(Boolean);
+  return (
+    <>
+      <div className="section-label">AI 解析</div>
+      <div className="audit-card ai-card">
+        <div className="audit-head">
+          <Cpu size={15} />
+          <strong>狀態：{ai.status || '—'}{ai.enabled === false ? '（未啟用）' : ''}</strong>
+        </div>
+        <AuditRow label="模型" value={ai.model || '—'} />
+        <AuditRow label="服務商" value={ai.provider || '—'} />
+        {ai.error ? <AuditRow label="錯誤" value={ai.error} /> : null}
+        <div className="section-label subtle">AI 結構化提取</div>
+        <pre className="ai-json-preview">{JSON.stringify(extracted, null, 2)}</pre>
+        <div className="section-label subtle">標記為 ai_extracted 的參數</div>
+        <div className="mono-list">{fromAi.length ? fromAi.join(', ') : '（無）'}</div>
+        <div className="section-label subtle">仍需確認 / 未知欄位</div>
+        <div className="mono-list">{pending.length ? pending.join(', ') : '（無）'}</div>
+      </div>
+    </>
+  );
+}
+
 function SourcePanel({ job }) {
   const params = job.params || {};
   return (
@@ -318,7 +476,11 @@ function SourcePanel({ job }) {
       <strong>{modelSourceTitle(job)}</strong>
       <span>{modelSourceSubtitle(job)}</span>
       {params.source_type === 'official_candidate' && <em>检测到待审核 CAD 来源，但当前未用于生成。</em>}
-      {params.model_origin === 'parametric_mvp' && <em>参数化工程近似模型，不是原厂 CAD。</em>}
+      {(params.model_origin === 'parametric_mvp' || params.model_origin === 'generic_mvp') && (
+        <em>参数化工程近似模型，不是原厂 CAD。</em>
+      )}
+      {params.model_origin === 'series_template' && <em>系列模板外形近似，不等同原厂精确几何。</em>}
+      {params.model_origin === 'image_approximated' && <em>依据图像的外观近似，非制造级精确模型。</em>}
       {params.selection_reason && <small>选择策略：{params.selection_reason}</small>}
     </div>
   );
@@ -848,6 +1010,9 @@ function DownloadPanel({ job }) {
   const params = job.params || {};
   const official = params.model_origin === 'official_cad';
   const completed = job.status === 'completed';
+  const ap = params.appearance_pipeline || {};
+  const showImg = ap.image_features_file && job.files?.image_features;
+  const showVision = ap.vision_report_file && job.files?.vision_report;
   return (
     <>
       <div className="section-label">导出文件</div>
@@ -857,6 +1022,12 @@ function DownloadPanel({ job }) {
         <a href={fileUrl(job, 'model_stl')} download><span>{official ? '下载官方模型预览 STL' : completed ? '下载确认版 STL' : '下载预览 STL'}</span><Download size={14} /></a>
         <a href={fileUrl(job, 'params_json')} download><span>{official ? '下载来源记录' : completed ? '下载确认版参数记录' : '下载参数记录'}</span><Download size={14} /></a>
         <a href={fileUrl(job, 'source_manifest')} download><span>下载来源审计 JSON</span><ShieldCheck size={14} /></a>
+        {showImg ? (
+          <a href={fileUrl(job, 'image_features')} download><span>下载图像特征 JSON</span><Code size={14} /></a>
+        ) : null}
+        {showVision ? (
+          <a href={fileUrl(job, 'vision_report')} download><span>下载视觉理解 JSON</span><Code size={14} /></a>
+        ) : null}
       </div>
     </>
   );
@@ -866,6 +1037,9 @@ function modelSourceTitle(job) {
   const params = job.params || {};
   if (params.model_origin === 'official_cad') return '官方 CAD 模型';
   if (params.model_origin === 'third_party_cad' || params.source_type === 'third_party') return '第三方 CAD 模型';
+  if (params.model_origin === 'series_template') return '系列模板近似模型';
+  if (params.model_origin === 'image_approximated') return '图片驱动外观近似';
+  if (params.model_origin === 'generic_mvp') return '通用参数化白模';
   return '参数化工程近似模型';
 }
 
@@ -873,16 +1047,23 @@ function modelSourceSubtitle(job) {
   const params = job.params || {};
   if (params.model_origin === 'official_cad') return params.cached_file_used ? '来源：已审核 CAD 来源库缓存' : '来源：厂家官网 / 授权来源，状态：确认版';
   if (params.model_origin === 'third_party_cad' || params.source_type === 'third_party') return '第三方模型，需核验';
+  if (params.model_origin === 'series_template') return '系列模板外形近似，非原厂 CAD；关键尺寸需确认';
+  if (params.model_origin === 'image_approximated') return '依据上传图像的外观近似模型，非计量级精确 CAD';
+  if (params.model_origin === 'generic_mvp') return '升级版通用参数化白模；仅工程近似预览';
   return '需人工确认关键尺寸，不是原厂精确 CAD';
 }
 
 function originText(origin) {
   if (origin === 'official_cad') return '官方 CAD';
   if (origin === 'third_party_cad') return '第三方 CAD';
+  if (origin === 'series_template') return '系列模板近似';
+  if (origin === 'image_approximated') return '图片近似';
+  if (origin === 'generic_mvp') return '通用白模';
   return '参数化 MVP';
 }
 
 function sourceCategoryText(category, origin) {
+  if (origin === 'generic_mvp' || origin === 'series_template' || origin === 'image_approximated') return '参数化 / 模板外形近似，不是原厂 CAD';
   if (origin === 'parametric_mvp') return '参数化工程近似模型，不是原厂 CAD';
   if (category === 'official_manufacturer') return '厂家官方来源';
   if (category === 'authorized_distributor') return '授权经销商来源';
@@ -895,6 +1076,8 @@ function sourceLabel(source) {
   if (source === 'user_confirmed') return '已确认';
   if (source === 'default_mvp') return '默认值';
   if (source === 'text_hint') return '文本线索';
+  if (source === 'ai_extracted') return 'AI 提取';
+  if (source === 'registry_template') return '外形注册表';
   return '未知来源';
 }
 

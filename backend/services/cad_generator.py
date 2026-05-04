@@ -92,6 +92,15 @@ def normalize_cad_params(params: dict[str, Any] | ConnectorCadParams) -> dict[st
             "accepted_unknowns": params.accepted_unknowns,
             "notes": params.notes,
             "unknown_fields": params.unknown_fields,
+            "ai_extraction": params.ai_extraction,
+            "template_name": params.template_name,
+            "appearance_confidence": params.appearance_confidence,
+            "visual_match": params.visual_match,
+            "preview_style": params.preview_style,
+            "appearance_pipeline": params.appearance_pipeline,
+            "image_feature_summary": params.image_feature_summary,
+            "vision_report_summary": params.vision_report_summary,
+            "image_fallback_warning": params.image_fallback_warning,
             "dimension_meta": {
                 "positions": params.dimensions["pin_count"],
                 "pitch_mm": params.dimensions["pin_pitch"],
@@ -119,7 +128,7 @@ def normalize_cad_params(params: dict[str, Any] | ConnectorCadParams) -> dict[st
     normalized["mounting_hole_spacing_mm"] = float(normalized["mounting_hole_spacing_mm"])
     normalized.setdefault("part_number", "MVP-CONNECTOR")
     normalized.setdefault("input_source", "default_mvp")
-    normalized.setdefault("model_origin", "parametric_mvp")
+    normalized.setdefault("model_origin", "generic_mvp")
     normalized.setdefault("source_type", "not_found")
     normalized.setdefault("official_candidate_found", False)
     normalized.setdefault("official_cad_downloaded", False)
@@ -148,6 +157,15 @@ def normalize_cad_params(params: dict[str, Any] | ConnectorCadParams) -> dict[st
     normalized.setdefault("accepted_unknowns", [])
     normalized.setdefault("notes", None)
     normalized.setdefault("unknown_fields", ["official_step_source", "manufacturer_exact_dimensions", "tolerance", "material"])
+    normalized.setdefault("ai_extraction", None)
+    normalized.setdefault("template_name", None)
+    normalized.setdefault("appearance_confidence", None)
+    normalized.setdefault("visual_match", None)
+    normalized.setdefault("preview_style", None)
+    normalized.setdefault("appearance_pipeline", None)
+    normalized.setdefault("image_feature_summary", None)
+    normalized.setdefault("vision_report_summary", None)
+    normalized.setdefault("image_fallback_warning", None)
     return normalized
 
 
@@ -248,7 +266,7 @@ def write_params_json(original_params: dict[str, Any] | ConnectorCadParams, para
         "status": params.get("status", "needs_confirmation"),
         "unit": "mm",
         "source": params.get("input_source", "default_mvp"),
-        "model_origin": params.get("model_origin", "parametric_mvp"),
+        "model_origin": params.get("model_origin", "generic_mvp"),
         "source_type": params.get("source_type", "not_found"),
         "official_candidate_found": params.get("official_candidate_found", False),
         "official_cad_downloaded": params.get("official_cad_downloaded", False),
@@ -289,6 +307,13 @@ def write_params_json(original_params: dict[str, Any] | ConnectorCadParams, para
             "stl": "model.stl",
             "dxf": "drawing.dxf",
         },
+        "ai_extraction": params.get("ai_extraction"),
+        "template_name": params.get("template_name"),
+        "appearance_confidence": params.get("appearance_confidence"),
+        "visual_match": params.get("visual_match"),
+        "preview_style": params.get("preview_style"),
+        "appearance_pipeline": params.get("appearance_pipeline"),
+        "image_fallback_warning": params.get("image_fallback_warning"),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

@@ -1,0 +1,38 @@
+{
+  "templates": [
+    {
+      "id": "GENERIC_RECTANGULAR_CONNECTOR",
+      "label": "通用矩形連接器（升級白模）",
+      "default_color": "grey",
+      "appearance_tags": ["rectangular_housing", "standard_pin_field"],
+      "description": "Upgraded generic housing — distinct from legacy MVP box via chamfered crown and split-line cues."
+    },
+    {
+      "id": "TE_BLUE_MULTI_CAVITY",
+      "label": "TE 藍色多腔體系列近似",
+      "default_color": "blue",
+      "appearance_tags": [
+        "rectangular_housing",
+        "multi_cavity_front_face",
+        "top_dual_guide_rails",
+        "front_shrouded_face",
+        "side_latch_features"
+      ],
+      "description": "Multi-cavity front grid, top guide rails, shrouded face — visual proxy for TE blue multi-cavity family."
+    },
+    {
+      "id": "TE_SUPERSEAL_2P_STYLE",
+      "label": "汽車 2 位密封風格近似",
+      "default_color": "black",
+      "appearance_tags": ["automotive_2cavity", "seal_lip", "top_latch_tab"],
+      "description": "Two large front cavities, seal-transition skirt, automotive latch silhouette."
+    },
+    {
+      "id": "IMAGE_DRIVEN_PROXY",
+      "label": "圖片驅動外觀近似",
+      "default_color": "grey",
+      "appearance_tags": ["image_silhouette", "data_driven_holes"],
+      "description": "Geometry driven from uploaded image features — approximate preview only."
+    }
+  ]
+}

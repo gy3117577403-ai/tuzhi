@@ -52,7 +52,15 @@ def save_params(job_id: str, params: ConnectorCadParams) -> None:
 
 
 def file_path(job_id: str, filename: str) -> Path:
-    allowed = {"model.step", "model.stl", "drawing.dxf", "params.json", "source_manifest.json"}
+    allowed = {
+        "model.step",
+        "model.stl",
+        "drawing.dxf",
+        "params.json",
+        "source_manifest.json",
+        "image_features.json",
+        "vision_report.json",
+    }
     if filename not in allowed:
         raise HTTPException(status_code=404, detail="Unsupported file")
     path = job_dir(job_id) / filename

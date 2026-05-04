@@ -2,6 +2,20 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 export type ConnectorInputType = 'text' | 'drawing' | 'photo';
 
+export type AiApiStatus = {
+  configured: boolean;
+  provider: string;
+  base_url_set: boolean;
+  api_key_set: boolean;
+  model: string;
+  key_preview: string;
+};
+
+export type AiTestResponse = {
+  ok: boolean;
+  extracted: Record<string, unknown>;
+};
+
 export type ConnectorJob = {
   job_id: string;
   status: 'idle' | 'uploading' | 'generating' | 'needs_confirmation' | 'completed' | 'failed';
@@ -12,6 +26,8 @@ export type ConnectorJob = {
     drawing_dxf: string;
     params_json: string;
     source_manifest: string;
+    image_features?: string;
+    vision_report?: string;
   };
   source_manifest_url?: string;
   source_domain?: Record<string, any>;
@@ -19,6 +35,20 @@ export type ConnectorJob = {
   error?: string;
   warning?: string;
 };
+
+export async function getAiApiStatus(): Promise<AiApiStatus> {
+  const response = await fetch(`${API_BASE}/api/ai/status`);
+  return parseResponse(response);
+}
+
+export async function postAiTest(text: string): Promise<AiTestResponse> {
+  const response = await fetch(`${API_BASE}/api/ai/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  return parseResponse(response);
+}
 
 async function parseResponse(response: Response) {
   if (response.ok) return response.json();

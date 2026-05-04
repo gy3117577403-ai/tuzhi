@@ -3,12 +3,31 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 
+const PREVIEW_COLORS: Record<string, number> = {
+  blue: 0x2563eb,
+  black: 0x1f2937,
+  grey: 0x9ca3af,
+  gray: 0x9ca3af,
+  white: 0xe5e7eb,
+  red: 0xdc2626,
+};
+
+function previewColorToHex(baseColor?: string): number {
+  if (!baseColor) return 0xf4f4f1;
+  const key = baseColor.trim().toLowerCase();
+  if (key.startsWith('#') && key.length >= 7) {
+    return parseInt(key.slice(1, 7), 16);
+  }
+  return PREVIEW_COLORS[key] ?? 0xf4f4f1;
+}
+
 type ModelViewerProps = {
   jobId?: string;
   stlUrl?: string;
+  previewBaseColor?: string;
 };
 
-export default function ModelViewer({ jobId, stlUrl }: ModelViewerProps) {
+export default function ModelViewer({ jobId, stlUrl, previewBaseColor }: ModelViewerProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -58,6 +77,8 @@ export default function ModelViewer({ jobId, stlUrl }: ModelViewerProps) {
     axes.position.set(-32, -28, -6.9);
     scene.add(axes);
 
+    const meshColor = previewColorToHex(previewBaseColor);
+
     const loader = new STLLoader();
     loader.load(
       modelUrl,
@@ -66,7 +87,7 @@ export default function ModelViewer({ jobId, stlUrl }: ModelViewerProps) {
         geometry.center();
 
         const material = new THREE.MeshStandardMaterial({
-          color: 0xf4f4f1,
+          color: meshColor,
           roughness: 0.74,
           metalness: 0.03,
         });
@@ -76,6 +97,7 @@ export default function ModelViewer({ jobId, stlUrl }: ModelViewerProps) {
         const maxAxis = Math.max(size.x, size.y, size.z) || 1;
         mesh.scale.setScalar(42 / maxAxis);
         mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(0, 0, 0);
         scene.add(mesh);
       },
       undefined,
@@ -112,7 +134,7 @@ export default function ModelViewer({ jobId, stlUrl }: ModelViewerProps) {
       renderer.dispose();
       mount.replaceChildren();
     };
-  }, [jobId, stlUrl]);
+  }, [jobId, stlUrl, previewBaseColor]);
 
   return (
     <div className="model-viewer">

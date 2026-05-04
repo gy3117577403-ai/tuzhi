@@ -8,9 +8,16 @@ from pydantic import BaseModel, Field
 
 InputType = Literal["text", "drawing", "photo"]
 JobStatus = Literal["generating", "needs_confirmation", "completed", "failed"]
-DimensionSource = Literal["default_mvp", "text_hint", "user_confirmed"]
+DimensionSource = Literal["default_mvp", "text_hint", "user_confirmed", "ai_extracted", "registry_template"]
 Confidence = Literal["low", "medium", "high", "manual_pending"]
-ModelOrigin = Literal["official_cad", "parametric_mvp", "third_party_cad"]
+ModelOrigin = Literal[
+    "official_cad",
+    "third_party_cad",
+    "parametric_mvp",
+    "series_template",
+    "image_approximated",
+    "generic_mvp",
+]
 SourceType = Literal["official_cad", "official_candidate", "third_party", "not_found", "local_test"]
 
 PARAMETRIC_DISCLAIMER = "This is a parametric engineering approximation, not an official manufacturer CAD model."
@@ -40,7 +47,7 @@ class ConnectorCadParams(BaseModel):
     accepted_unknowns: list[str] = Field(default_factory=list)
     notes: str | None = None
     error: str | None = None
-    model_origin: ModelOrigin = "parametric_mvp"
+    model_origin: ModelOrigin = "generic_mvp"
     source_type: SourceType = "not_found"
     manufacturer: str | None = None
     official_candidate_found: bool = False
@@ -71,6 +78,15 @@ class ConnectorCadParams(BaseModel):
     generation_files: dict[str, str] = Field(
         default_factory=lambda: {"step": "model.step", "stl": "model.stl", "dxf": "drawing.dxf"}
     )
+    ai_extraction: dict[str, Any] | None = None
+    template_name: str | None = None
+    appearance_confidence: str | None = None
+    visual_match: dict[str, Any] | None = None
+    preview_style: dict[str, Any] | None = None
+    appearance_pipeline: dict[str, Any] | None = None
+    image_feature_summary: dict[str, Any] | None = None
+    vision_report_summary: dict[str, Any] | None = None
+    image_fallback_warning: str | None = None
 
 
 DEFAULT_DIMENSIONS: dict[str, DimensionValue] = {
@@ -205,13 +221,180 @@ def apply_cad_source_metadata(params: ConnectorCadParams, cad_source: dict[str, 
     next_params.available_versions = cad_source.get("available_versions", [])
     next_params.preferred_revision = cad_source.get("preferred_revision")
     next_params.preferred_version_label = cad_source.get("preferred_version_label")
-    next_params.model_origin = "third_party_cad" if source_type == "third_party" else "parametric_mvp"
+    next_params.model_origin = "third_party_cad" if source_type == "third_party" else "generic_mvp"
     if source_type == "official_candidate":
         next_params.fallback_reason = cad_source.get("fallback_reason") or "official CAD URL not configured"
     elif source_type == "not_found":
         next_params.fallback_reason = "official CAD source not found"
     elif source_type == "third_party":
         next_params.fallback_reason = "third-party CAD requires verification; using parametric MVP fallback"
+    return next_params
+
+
+def apply_visual_registry_item(params: ConnectorCadParams, item: dict[str, Any]) -> ConnectorCadParams:
+    """Apply registry template dimensions and metadata for series-template CAD."""
+    next_params = params.model_copy(deep=True)
+    tp = item.get("template_params") or {}
+    if "body_length_mm" in tp:
+        next_params.dimensions["overall_length"] = DimensionValue(
+            value=float(tp["body_length_mm"]), source="registry_template", confidence="high"
+        )
+    if "body_width_mm" in tp:
+        next_params.dimensions["overall_width"] = DimensionValue(
+            value=float(tp["body_width_mm"]), source="registry_template", confidence="high"
+        )
+    if "body_height_mm" in tp:
+        next_params.dimensions["overall_height"] = DimensionValue(
+            value=float(tp["body_height_mm"]), source="registry_template", confidence="high"
+        )
+    if "cavity_diameter_mm" in tp:
+        cd = float(tp["cavity_diameter_mm"])
+        next_params.dimensions["pin_diameter"] = DimensionValue(
+            value=round(cd / 1.6, 4),
+            source="registry_template",
+            confidence="high",
+        )
+    if item.get("positions") is not None:
+        pc = max(1, int(item["positions"]))
+        next_params.dimensions["pin_count"] = DimensionValue(value=pc, unit="count", source="registry_template", confidence="high")
+        rows = 2 if pc > 8 else 1
+        next_params.dimensions["pin_rows"] = DimensionValue(value=rows, unit="count", source="registry_template", confidence="high")
+    _derive_body_from_pin_array(next_params.dimensions, overwrite_defaults=False)
+    if item.get("manufacturer"):
+        next_params.manufacturer = str(item["manufacturer"])
+    if item.get("part_number"):
+        next_params.part_number = str(item["part_number"])
+        next_params.title = item.get("display_name") or str(item["part_number"])
+    next_params.visual_match = {
+        "matched_from_registry": True,
+        "registry_item_id": item.get("id"),
+        "selection_reason": "Matched part_visual_registry entry.",
+        "front_face_layout": item.get("front_face_layout"),
+    }
+    next_params.preview_style = {"base_color": item.get("color") or "grey"}
+    return next_params
+
+
+CAD_EXTRACT_KEY_TO_INTERNAL: dict[str, str] = {
+    "positions": "pin_count",
+    "pitch_mm": "pin_pitch",
+    "body_length_mm": "overall_length",
+    "body_width_mm": "overall_width",
+    "body_height_mm": "overall_height",
+    "cavity_diameter_mm": "pin_diameter",
+    "mounting_hole_spacing_mm": "mount_hole_spacing",
+    "mounting_hole_diameter_mm": "mount_hole_diameter",
+}
+
+
+def merge_ai_extracted_into_params(
+    params: ConnectorCadParams,
+    extracted: dict[str, Any],
+    ai_extraction: dict[str, Any],
+) -> ConnectorCadParams:
+    """Merge AI JSON extraction into parametric dimensions; records ai_extraction block."""
+    next_params = params.model_copy(deep=True)
+    next_params.ai_extraction = ai_extraction
+
+    raw_conf = str(extracted.get("confidence") or "low").lower().strip()
+    ai_conf: Confidence = raw_conf if raw_conf in {"low", "medium", "high"} else "low"  # type: ignore[assignment]
+
+    mfg = str(extracted.get("manufacturer") or "").strip()
+    pn = str(extracted.get("part_number") or "").strip()
+    ctype = str(extracted.get("connector_type") or "").strip()
+    if mfg:
+        next_params.manufacturer = mfg
+    if pn:
+        next_params.part_number = pn
+    if mfg and pn:
+        next_params.title = f"{mfg} {pn}".strip()
+
+    notes = str(extracted.get("notes") or "").strip()
+    if ctype:
+        next_params.notes = f"{ctype}. {notes}".strip() if notes else ctype
+    elif notes:
+        next_params.notes = notes
+
+    positions = extracted.get("positions")
+    if positions is not None:
+        try:
+            count = max(1, int(float(positions)))
+            next_params.dimensions["pin_count"] = DimensionValue(value=count, unit="count", source="ai_extracted", confidence=ai_conf)
+            rows = 2 if count > 8 else 1
+            next_params.dimensions["pin_rows"] = DimensionValue(value=rows, unit="count", source="ai_extracted", confidence=ai_conf)
+        except (TypeError, ValueError):
+            pass
+
+    pitch = extracted.get("pitch_mm")
+    if pitch is not None:
+        try:
+            pv = float(pitch)
+            if 0.1 <= pv <= 50:
+                next_params.dimensions["pin_pitch"] = DimensionValue(value=pv, source="ai_extracted", confidence=ai_conf)
+        except (TypeError, ValueError):
+            pass
+
+    def _set_len(key: str, dim_key: str) -> None:
+        val = extracted.get(key)
+        if val is None:
+            return
+        try:
+            fv = float(val)
+            if fv > 0:
+                next_params.dimensions[dim_key] = DimensionValue(value=fv, source="ai_extracted", confidence=ai_conf)
+        except (TypeError, ValueError):
+            pass
+
+    _set_len("body_length_mm", "overall_length")
+    _set_len("body_width_mm", "overall_width")
+    _set_len("body_height_mm", "overall_height")
+
+    cav = extracted.get("cavity_diameter_mm")
+    if cav is not None:
+        try:
+            cd = float(cav)
+            if cd > 0:
+                next_params.dimensions["pin_diameter"] = DimensionValue(
+                    value=round(cd / 1.6, 4),
+                    source="ai_extracted",
+                    confidence=ai_conf,
+                )
+        except (TypeError, ValueError):
+            pass
+
+    _set_len("mounting_hole_spacing_mm", "mount_hole_spacing")
+    _set_len("mounting_hole_diameter_mm", "mount_hole_diameter")
+
+    merged_unknown = list(dict.fromkeys(next_params.unknown_fields))
+    for item in extracted.get("unknown_fields") or []:
+        s = str(item).strip()
+        if s and s not in merged_unknown:
+            merged_unknown.append(s)
+    for key in (
+        "positions",
+        "pitch_mm",
+        "body_length_mm",
+        "body_width_mm",
+        "body_height_mm",
+        "cavity_diameter_mm",
+        "mounting_hole_spacing_mm",
+        "mounting_hole_diameter_mm",
+    ):
+        if extracted.get(key) is not None:
+            continue
+        internal = CAD_EXTRACT_KEY_TO_INTERNAL.get(key)
+        if internal:
+            dim = next_params.dimensions.get(internal)
+            if dim and dim.source in {"text_hint", "user_confirmed", "ai_extracted"}:
+                continue
+        if key not in merged_unknown:
+            merged_unknown.append(key)
+    next_params.unknown_fields = merged_unknown
+
+    if any(dim.source == "ai_extracted" for dim in next_params.dimensions.values()):
+        next_params.source = "ai_extracted"  # type: ignore[assignment]
+
+    _derive_body_from_pin_array(next_params.dimensions, overwrite_defaults=False)
     return next_params
 
 

@@ -1,0 +1,36 @@
+{
+  "items": [
+    {
+      "id": "a1b2c3d4-5e6f-4a0b-9c8d-1e2f3a4b5c6d",
+      "manufacturer": "TE Connectivity",
+      "part_number": "1-968970-1",
+      "aliases": ["19689701", "1 968970 1", "9689701", "1-968970-1"],
+      "series": "TE_BLUE_MULTI_CAVITY",
+      "display_name": "TE 1-968970-1",
+      "positions": 2,
+      "color": "blue",
+      "appearance_tags": [
+        "rectangular_housing",
+        "multi_cavity_front_face",
+        "top_dual_guide_rails",
+        "front_shrouded_face",
+        "side_latch_features"
+      ],
+      "front_face_layout": {
+        "grid_cols": 3,
+        "grid_rows": 2,
+        "active_positions": 2
+      },
+      "template_params": {
+        "body_length_mm": 28,
+        "body_width_mm": 24,
+        "body_height_mm": 22,
+        "front_shroud_depth_mm": 8,
+        "rail_height_mm": 2.5,
+        "cavity_diameter_mm": 4.2
+      },
+      "confidence": "registry_defined",
+      "notes": "Series-template visual proxy, not official manufacturer CAD."
+    }
+  ]
+}

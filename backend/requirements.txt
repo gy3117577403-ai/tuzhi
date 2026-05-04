@@ -3,3 +3,8 @@ uvicorn
 pydantic
 python-multipart
 cadquery
+httpx
+python-dotenv
+Pillow
+opencv-python-headless
+numpy

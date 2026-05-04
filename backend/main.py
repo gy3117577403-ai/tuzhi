@@ -24,6 +24,13 @@ from services.cad_registry import (
     review_registry_item,
     update_registry_item,
 )
+from services.ai_client import get_ai_env, is_ai_configured, preview_api_key
+from services.ai_param_extractor import DEFAULT_EXTRACTED, extract_connector_params_with_ai_detailed
+from services.appearance_job_steps import (
+    configure_image_appearance_pipeline,
+    configure_text_appearance_pipeline,
+    is_image_upload,
+)
 from services.connector_params import (
     ConnectorCadParams,
     InputType,
@@ -76,6 +83,43 @@ class RegistryDeprecateRequest(BaseModel):
     reason: str = "Deprecated by local admin."
 
 
+class AiTestRequest(BaseModel):
+    text: str
+
+
+def _ai_extraction_skipped_block() -> dict[str, Any]:
+    env = get_ai_env()
+    return {
+        "enabled": False,
+        "status": "skipped",
+        "provider": env.get("provider", "openai_compatible"),
+        "model": env.get("model", "") or "",
+        "error": "",
+        "extracted": {**DEFAULT_EXTRACTED},
+    }
+
+
+@app.get("/api/ai/status")
+def ai_api_status() -> dict[str, Any]:
+    env = get_ai_env()
+    key = env.get("api_key", "")
+    configured = is_ai_configured()
+    return {
+        "configured": configured,
+        "provider": env.get("provider", "openai_compatible"),
+        "base_url_set": bool(env.get("base_url")),
+        "api_key_set": bool(key),
+        "model": env.get("model", "") or "",
+        "key_preview": preview_api_key(key) if key else "",
+    }
+
+
+@app.post("/api/ai/test")
+def ai_api_test(payload: AiTestRequest) -> dict[str, Any]:
+    extracted, meta = extract_connector_params_with_ai_detailed((payload.text or "").strip())
+    return {"ok": meta.get("status") == "success", "extracted": extracted}
+
+
 @app.post("/api/connector-cad/jobs")
 async def create_job(request: Request) -> dict[str, Any]:
     input_type, text, file, incoming_params, preferred_revision, preferred_version_label = await parse_job_request(request)
@@ -90,6 +134,7 @@ async def create_job(request: Request) -> dict[str, Any]:
 
     if can_use_official_cad(cad_source):
         params = build_official_params(input_type=input_type, text=text, cad_source=cad_source)
+        params = params.model_copy(update={"ai_extraction": _ai_extraction_skipped_block()})
         try:
             generated_files = download_official_cad(cad_source, output_dir)
             write_official_params(params, output_dir)
@@ -103,6 +148,33 @@ async def create_job(request: Request) -> dict[str, Any]:
 
     params = build_initial_params(input_type=input_type, text=text, filename=filename)
     params = apply_cad_source_metadata(params, cad_source)
+
+    if input_type == "text" and (text or "").strip():
+        params = configure_text_appearance_pipeline(params, text.strip())
+    elif input_type in ("photo", "drawing") and is_image_upload(filename):
+        params = configure_image_appearance_pipeline(params, output_dir, filename, text)
+    elif input_type in ("photo", "drawing"):
+        params = params.model_copy(
+            update={
+                "model_origin": "generic_mvp",
+                "template_name": "GENERIC_RECTANGULAR_CONNECTOR",
+                "appearance_confidence": "low",
+                "ai_extraction": _ai_extraction_skipped_block(),
+                "appearance_pipeline": {
+                    "used": True,
+                    "mode": "generic_mvp",
+                    "template_name": "GENERIC_RECTANGULAR_CONNECTOR",
+                    "selection_reason": "Non-image upload: using upgraded generic rectangular template (not OCR).",
+                    "preview_color": "grey",
+                    "image_features_file": None,
+                    "vision_report_file": None,
+                },
+                "preview_style": {"base_color": "grey"},
+            }
+        )
+    else:
+        params = params.model_copy(update={"ai_extraction": _ai_extraction_skipped_block()})
+
     params = apply_confirmed_params(params, incoming_params)
     try:
         generated_files = export_job_files(params, output_dir)
@@ -132,6 +204,7 @@ async def create_job_from_official_url(payload: OfficialUrlJobRequest) -> dict[s
         "license_note": payload.license_note,
     }
     params = build_official_params(input_type="text", text=payload.part_number, cad_source=cad_source)
+    params = params.model_copy(update={"ai_extraction": _ai_extraction_skipped_block()})
     try:
         generated_files = download_official_cad(cad_source, output_dir)
         write_official_params(params, output_dir)
@@ -318,6 +391,18 @@ def download_source_manifest(job_id: str) -> FileResponse:
     return download_file(job_id, "source_manifest.json", "application/json")
 
 
+@app.get("/api/connector-cad/jobs/{job_id}/files/image_features.json")
+@app.head("/api/connector-cad/jobs/{job_id}/files/image_features.json")
+def download_image_features(job_id: str) -> FileResponse:
+    return download_file(job_id, "image_features.json", "application/json")
+
+
+@app.get("/api/connector-cad/jobs/{job_id}/files/vision_report.json")
+@app.head("/api/connector-cad/jobs/{job_id}/files/vision_report.json")
+def download_vision_report(job_id: str) -> FileResponse:
+    return download_file(job_id, "vision_report.json", "application/json")
+
+
 async def parse_job_request(request: Request) -> tuple[InputType, str | None, Any, dict[str, Any], str | None, str | None]:
     content_type = request.headers.get("content-type", "")
     file = None
@@ -426,6 +511,8 @@ def job_payload(job_id: str, params: ConnectorCadParams) -> dict[str, Any]:
             "drawing_dxf": f"/api/connector-cad/jobs/{job_id}/files/drawing.dxf",
             "params_json": f"/api/connector-cad/jobs/{job_id}/files/params.json",
             "source_manifest": f"/api/connector-cad/jobs/{job_id}/files/source_manifest.json",
+            "image_features": f"/api/connector-cad/jobs/{job_id}/files/image_features.json",
+            "vision_report": f"/api/connector-cad/jobs/{job_id}/files/vision_report.json",
         },
     }
 

@@ -79,6 +79,11 @@ JOB_ARTIFACT_FILENAMES = frozenset(
         "engineering_confirmation_checklist.json",
         "sop_wi_assets_manifest.json",
         "sop_wi_draft.pdf",
+        "confirmation_status.json",
+        "sop_wi_signed.html",
+        "sop_wi_signed.json",
+        "sop_wi_signed_summary.md",
+        "sop_wi_signed.pdf",
     }
 )
 

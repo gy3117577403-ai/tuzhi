@@ -57,6 +57,12 @@ from services.file_store import (
 from services.image_search_client import search_connector_images
 from services.image_search_store import create_search_record, get_search_record, resolve_candidate
 from services.official_cad_downloader import can_use_official_cad, download_official_cad, write_official_params
+from services.confirmation_status import (
+    initialize_confirmation_status,
+    load_confirmation_status,
+    reset_confirmation_status,
+    update_confirmation_item,
+)
 from services.search_to_cad_pipeline import (
     generate_cad_from_search,
     merge_image_search_fallback_notice,
@@ -64,6 +70,7 @@ from services.search_to_cad_pipeline import (
 from services.search_result_ranker import assess_candidate_generation_risk
 from services.source_audit import create_source_manifest, augment_params_json, summarize_manifest
 from services.sop_wi_exporter import export_sop_wi_package
+from services.sop_wi_signoff_exporter import export_signed_sop_wi
 from services.registry_history import get_registry_item_history, verify_registry_history_signatures
 from services.registry_search import get_registry_stats, search_registry_items
 
@@ -128,6 +135,13 @@ class RegistryDeprecateRequest(BaseModel):
 
 class AiTestRequest(BaseModel):
     text: str
+
+
+class ConfirmationItemPatchRequest(BaseModel):
+    status: Literal["pending", "confirmed", "rejected", "not_applicable"]
+    note: str = ""
+    confirmed_by: str = ""
+    role: Literal["engineering", "process", "quality"] | str = ""
 
 
 def _ai_extraction_skipped_block() -> dict[str, Any]:
@@ -483,6 +497,60 @@ def generate_sop_wi_for_job(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail={"status": "failed", "error": str(exc)})
 
 
+@app.get("/api/connector-cad/jobs/{job_id}/confirmation-status")
+def get_confirmation_status_for_job(job_id: str) -> dict[str, Any]:
+    output_dir = create_job_dir(job_id)
+    try:
+        return load_confirmation_status(output_dir)
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail="engineering_confirmation_checklist.json not found")
+
+
+@app.patch("/api/connector-cad/jobs/{job_id}/confirmation-status/items/{item_id}")
+def patch_confirmation_status_item(job_id: str, item_id: str, payload: ConfirmationItemPatchRequest) -> dict[str, Any]:
+    output_dir = create_job_dir(job_id)
+    try:
+        return update_confirmation_item(
+            output_dir,
+            item_id=item_id,
+            status=payload.status,
+            note=payload.note,
+            confirmed_by=payload.confirmed_by,
+            role=payload.role,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail="engineering_confirmation_checklist.json not found")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown confirmation item")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/connector-cad/jobs/{job_id}/confirmation-status/reset")
+def reset_confirmation_status_for_job(job_id: str) -> dict[str, Any]:
+    output_dir = create_job_dir(job_id)
+    try:
+        return reset_confirmation_status(output_dir)
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail="engineering_confirmation_checklist.json not found")
+
+
+@app.post("/api/connector-cad/jobs/{job_id}/sop-wi/export-signed")
+def export_signed_sop_wi_for_job(job_id: str) -> dict[str, Any]:
+    output_dir = create_job_dir(job_id)
+    try:
+        pack = export_signed_sop_wi(output_dir)
+        params = load_params(job_id)
+        params_payload = json.loads((output_dir / "params.json").read_text(encoding="utf-8"))
+        params = params.model_copy(update={"sop_wi": params_payload.get("sop_wi") or params.sop_wi})
+        save_params(job_id, params)
+        return {"job_id": job_id, "status": pack.get("status"), "files": pack.get("files", {})}
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail="confirmation_status.json not found")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"status": "failed", "error": str(exc)})
+
+
 @app.get("/api/cad-registry/items")
 def list_cad_registry_items(
     q: str | None = None,
@@ -783,9 +851,14 @@ def job_payload(job_id: str, params: ConnectorCadParams) -> dict[str, Any]:
             ("sop_wi_confirmation_checklist", sf.get("confirmation_checklist")),
             ("sop_wi_assets_manifest", sf.get("assets_manifest")),
             ("sop_wi_draft_pdf", sf.get("draft_pdf")),
+            ("confirmation_status", "confirmation_status.json"),
+            ("sop_wi_signed_html", sf.get("signed_html")),
+            ("sop_wi_signed_json", sf.get("signed_json")),
+            ("sop_wi_signed_summary_md", sf.get("signed_summary_md")),
+            ("sop_wi_signed_pdf", sf.get("signed_pdf")),
         ]
         for key, fn in pairs:
-            if fn:
+            if fn and (create_job_dir(job_id) / fn).exists():
                 base_files[key] = f"/api/connector-cad/jobs/{job_id}/files/{fn}"
 
     return {

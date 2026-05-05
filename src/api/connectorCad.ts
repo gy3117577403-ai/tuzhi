@@ -47,6 +47,11 @@ export type ConnectorJob = {
     sop_wi_confirmation_checklist?: string;
     sop_wi_assets_manifest?: string;
     sop_wi_draft_pdf?: string;
+    confirmation_status?: string;
+    sop_wi_signed_html?: string;
+    sop_wi_signed_json?: string;
+    sop_wi_signed_summary_md?: string;
+    sop_wi_signed_pdf?: string;
   };
   source_manifest_url?: string;
   source_domain?: Record<string, any>;
@@ -231,6 +236,38 @@ export async function getConnectorJob(jobId: string): Promise<ConnectorJob> {
 
 export async function generateSopWiDraft(jobId: string): Promise<{ job_id: string; status: string; files: Record<string, string> }> {
   const response = await fetch(`${API_BASE}/api/connector-cad/jobs/${jobId}/sop-wi/generate`, {
+    method: 'POST',
+  });
+  return parseResponse(response);
+}
+
+export async function getConfirmationStatus(jobId: string): Promise<Record<string, any>> {
+  const response = await fetch(`${API_BASE}/api/connector-cad/jobs/${jobId}/confirmation-status`);
+  return parseResponse(response);
+}
+
+export async function updateConfirmationItem(
+  jobId: string,
+  itemId: string,
+  payload: { status: string; note?: string; confirmed_by?: string; role?: string },
+): Promise<Record<string, any>> {
+  const response = await fetch(`${API_BASE}/api/connector-cad/jobs/${jobId}/confirmation-status/items/${itemId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response);
+}
+
+export async function resetConfirmationStatus(jobId: string): Promise<Record<string, any>> {
+  const response = await fetch(`${API_BASE}/api/connector-cad/jobs/${jobId}/confirmation-status/reset`, {
+    method: 'POST',
+  });
+  return parseResponse(response);
+}
+
+export async function exportSignedSopWi(jobId: string): Promise<{ job_id: string; status: string; files: Record<string, string> }> {
+  const response = await fetch(`${API_BASE}/api/connector-cad/jobs/${jobId}/sop-wi/export-signed`, {
     method: 'POST',
   });
   return parseResponse(response);

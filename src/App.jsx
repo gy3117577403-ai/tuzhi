@@ -31,7 +31,9 @@ import {
   downloadRegistryAuditReport,
   exportCadRegistry,
   fileUrl,
+  exportSignedSopWi,
   generateSopWiDraft,
+  getConfirmationStatus,
   getAiApiStatus,
   getCadRegistryCache,
   getCadRegistryItemHistory,
@@ -41,11 +43,13 @@ import {
   listCadRegistryItems,
   pollConnectorJob,
   postAiTest,
+  resetConfirmationStatus,
   repairRegistryCache,
   repairRegistryItemCache,
   refreshCadRegistryCache,
   reviewCadRegistryItem,
   searchConnectorImages,
+  updateConfirmationItem,
   verifyRegistryAudit,
 } from './api/connectorCad';
 
@@ -98,6 +102,8 @@ export default function App() {
   const [manualImageUrl, setManualImageUrl] = useState('');
   const [manualSourceUrl, setManualSourceUrl] = useState('');
   const [sopWiBusy, setSopWiBusy] = useState(false);
+  const [confirmationStatus, setConfirmationStatus] = useState(null);
+  const [confirmationEdits, setConfirmationEdits] = useState({});
 
   const canGenerate = activeTab === 'text' ? inputText.trim().length > 0 : Boolean(file);
   const isBusy = status === 'uploading' || status === 'generating';
@@ -145,6 +151,23 @@ export default function App() {
     setConfirmValues(next);
     setUnknownNotes({});
   }, [job?.job_id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setConfirmationStatus(null);
+    setConfirmationEdits({});
+    if (!job?.job_id || !job.params?.sop_wi?.enabled) return () => {
+      cancelled = true;
+    };
+    getConfirmationStatus(job.job_id)
+      .then((data) => {
+        if (!cancelled) setConfirmationStatus(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.job_id, job?.params?.sop_wi?.enabled]);
 
   const handleGenerate = async () => {
     if (!canGenerate || isBusy) return;
@@ -278,6 +301,58 @@ export default function App() {
       setStatus(refreshed.status === 'failed' ? 'failed' : refreshed.status);
     } catch (err) {
       setError(err.message || 'SOP/WI 草稿生成失败');
+    } finally {
+      setSopWiBusy(false);
+    }
+  };
+
+  const refreshConfirmationStatus = async () => {
+    if (!job?.job_id) return;
+    const data = await getConfirmationStatus(job.job_id);
+    setConfirmationStatus(data);
+  };
+
+  const handleSaveConfirmationItem = async (item) => {
+    if (!job?.job_id || !item?.id) return;
+    const edit = confirmationEdits[item.id] || {};
+    try {
+      const data = await updateConfirmationItem(job.job_id, item.id, {
+        status: edit.status ?? item.status,
+        note: edit.note ?? item.note ?? '',
+        confirmed_by: edit.confirmed_by ?? item.confirmed_by ?? '',
+        role: edit.role ?? item.role ?? 'engineering',
+      });
+      setConfirmationStatus(data);
+      setConfirmationEdits((prev) => ({ ...prev, [item.id]: {} }));
+      const refreshed = await getConnectorJob(job.job_id);
+      setJob(refreshed);
+    } catch (err) {
+      setError(err.message || '确认项保存失败');
+    }
+  };
+
+  const handleResetConfirmation = async () => {
+    if (!job?.job_id) return;
+    try {
+      const data = await resetConfirmationStatus(job.job_id);
+      setConfirmationStatus(data);
+      setConfirmationEdits({});
+    } catch (err) {
+      setError(err.message || '确认状态重置失败');
+    }
+  };
+
+  const handleExportSignedSopWi = async () => {
+    if (!job?.job_id) return;
+    setSopWiBusy(true);
+    try {
+      await exportSignedSopWi(job.job_id);
+      const data = await getConfirmationStatus(job.job_id);
+      setConfirmationStatus(data);
+      const refreshed = await getConnectorJob(job.job_id);
+      setJob(refreshed);
+    } catch (err) {
+      setError(err.message || '带签核状态 SOP/WI 导出失败');
     } finally {
       setSopWiBusy(false);
     }
@@ -458,7 +533,18 @@ export default function App() {
             <AppearanceDetailPanel job={job} />
             <AiExtractionPanel job={job} />
             <AuditPanel job={job} />
-            <SopWiPanel job={job} isBusy={sopWiBusy} onGenerate={handleGenerateSopWi} />
+            <SopWiPanel
+              job={job}
+              isBusy={sopWiBusy}
+              onGenerate={handleGenerateSopWi}
+              confirmationStatus={confirmationStatus}
+              confirmationEdits={confirmationEdits}
+              setConfirmationEdits={setConfirmationEdits}
+              onRefreshConfirmation={refreshConfirmationStatus}
+              onSaveConfirmationItem={handleSaveConfirmationItem}
+              onResetConfirmation={handleResetConfirmation}
+              onExportSigned={handleExportSignedSopWi}
+            />
             <StatusPanel status={status} warning={job.warning || job.params?.warning} />
             {status === 'completed' && <SuccessMessage job={job} />}
             {status === 'failed' && error && <ErrorMessage error={error} />}
@@ -1644,11 +1730,26 @@ function FlatCadPanel({ job }) {
   );
 }
 
-function SopWiPanel({ job, isBusy, onGenerate }) {
+function SopWiPanel({
+  job,
+  isBusy,
+  onGenerate,
+  confirmationStatus,
+  confirmationEdits,
+  setConfirmationEdits,
+  onRefreshConfirmation,
+  onSaveConfirmationItem,
+  onResetConfirmation,
+  onExportSigned,
+}) {
   const sop = job.params?.sop_wi;
   const summary = sop?.checklist_summary || {};
   if (!job.params?.flat_cad?.enabled) return null;
   const hasDraft = Boolean(sop?.enabled && sop.status !== 'failed');
+  const cs = confirmationStatus;
+  const csSummary = cs?.summary || {};
+  const ready = cs?.overall_status === 'ready_for_internal_release';
+  const updateEdit = (itemId, patch) => setConfirmationEdits((prev) => ({ ...prev, [itemId]: { ...(prev[itemId] || {}), ...patch } }));
   return (
     <div className="sop-wi-panel">
       <div className="sop-wi-head">
@@ -1674,6 +1775,80 @@ function SopWiPanel({ job, isBusy, onGenerate }) {
             <FlatInfo label="pending_count" value={summary.pending_count ?? 0} tone="caution" />
             <FlatInfo label="high_risk_count" value={summary.high_risk_count ?? 0} tone="caution" />
           </div>
+          {cs ? (
+            <>
+              <div className={`confirmation-release ${ready ? 'ready' : 'blocked'}`}>
+                {ready
+                  ? '确认项已完成，可进入企业内部下发审批流程。仍需按公司流程批准后下发。'
+                  : '仍有确认项未完成或被驳回，不允许下发车间。'}
+              </div>
+              <div className="sop-wi-meta">
+                <FlatInfo label="overall_status" value={cs.overall_status} tone={ready ? 'complete' : 'caution'} />
+                <FlatInfo label="required_count" value={csSummary.required_count ?? 0} />
+                <FlatInfo label="confirmed_count" value={csSummary.confirmed_count ?? 0} tone="complete" />
+                <FlatInfo label="pending_count" value={csSummary.pending_count ?? 0} tone="caution" />
+                <FlatInfo label="rejected_count" value={csSummary.rejected_count ?? 0} tone={csSummary.rejected_count ? 'insufficient' : ''} />
+                <FlatInfo label="high_risk_count" value={csSummary.high_risk_count ?? 0} tone="caution" />
+                <FlatInfo label="can_enter_release_workflow" value={String(cs.can_enter_release_workflow ?? false)} tone={ready ? 'complete' : 'caution'} />
+                <FlatInfo label="can_release_to_shopfloor" value={String(cs.can_release_to_shopfloor ?? false)} tone="insufficient" />
+              </div>
+              <div className="confirmation-actions">
+                <button className="small-action" onClick={onRefreshConfirmation}>刷新确认状态</button>
+                <button className="small-action secondary" onClick={onResetConfirmation}>重置确认状态</button>
+                <button className="small-action" disabled={isBusy} onClick={onExportSigned}>导出带签核状态 SOP/WI</button>
+              </div>
+              <div className="confirmation-table-wrap">
+                <table className="confirmation-table">
+                  <thead>
+                    <tr>
+                      <th>category</th>
+                      <th>label</th>
+                      <th>risk</th>
+                      <th>status</th>
+                      <th>confirmed_by</th>
+                      <th>role</th>
+                      <th>note</th>
+                      <th>confirmed_at</th>
+                      <th>save</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(cs.items || []).map((item) => {
+                      const edit = confirmationEdits[item.id] || {};
+                      return (
+                        <tr key={item.id} className={`hazard-${item.risk_level || 'medium'} status-${edit.status || item.status}`}>
+                          <td>{item.category}{item.required ? ' *' : ''}</td>
+                          <td>{item.label}</td>
+                          <td>{item.risk_level}</td>
+                          <td>
+                            <select value={edit.status ?? item.status} onChange={(event) => updateEdit(item.id, { status: event.target.value })}>
+                              <option value="pending">pending / 待确认</option>
+                              <option value="confirmed">confirmed / 已确认</option>
+                              <option value="rejected">rejected / 驳回</option>
+                              <option value="not_applicable">not_applicable / 不适用</option>
+                            </select>
+                          </td>
+                          <td><input value={edit.confirmed_by ?? item.confirmed_by ?? ''} onChange={(event) => updateEdit(item.id, { confirmed_by: event.target.value })} /></td>
+                          <td>
+                            <select value={edit.role ?? item.role ?? 'engineering'} onChange={(event) => updateEdit(item.id, { role: event.target.value })}>
+                              <option value="engineering">engineering / 工程</option>
+                              <option value="process">process / 工艺</option>
+                              <option value="quality">quality / 品质</option>
+                            </select>
+                          </td>
+                          <td><input value={edit.note ?? item.note ?? ''} onChange={(event) => updateEdit(item.id, { note: event.target.value })} /></td>
+                          <td>{item.confirmed_at || '—'}</td>
+                          <td><button className="small-action" onClick={() => onSaveConfirmationItem(item)}>保存</button></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="sop-wi-empty">确认状态载入中，或可点击刷新确认状态初始化。</div>
+          )}
           {sop.warnings?.length ? (
             <ul className="sop-wi-warnings">
               {sop.warnings.map((warning) => <li key={warning}>{warning}</li>)}
@@ -1684,7 +1859,10 @@ function SopWiPanel({ job, isBusy, onGenerate }) {
             <DownloadItem job={job} fileKey="sop_wi_draft_json" label="SOP/WI JSON" icon="code" />
             <DownloadItem job={job} fileKey="sop_wi_summary_md" label="Summary Markdown" icon="code" />
             <DownloadItem job={job} fileKey="sop_wi_confirmation_checklist" label="工程确认清单 JSON" icon="code" />
+            <DownloadItem job={job} fileKey="confirmation_status" label="confirmation_status.json" icon="code" />
             <DownloadItem job={job} fileKey="sop_wi_assets_manifest" label="资产清单 JSON" icon="code" />
+            <DownloadItem job={job} fileKey="sop_wi_signed_html" label="sop_wi_signed.html" icon="code" />
+            <DownloadItem job={job} fileKey="sop_wi_signed_summary_md" label="sop_wi_signed_summary.md" icon="code" />
             <DownloadItem job={job} fileKey="sop_wi_draft_pdf" label="SOP/WI PDF" />
           </div>
         </>
@@ -1744,7 +1922,12 @@ function DownloadPanel({ job }) {
         ['sop_wi_draft_json', 'sop_wi_draft.json', 'code'],
         ['sop_wi_summary_md', 'sop_wi_summary.md', 'code'],
         ['sop_wi_confirmation_checklist', 'engineering_confirmation_checklist.json', 'code'],
+        ['confirmation_status', 'confirmation_status.json', 'code'],
         ['sop_wi_assets_manifest', 'sop_wi_assets_manifest.json', 'code'],
+        ['sop_wi_signed_html', 'sop_wi_signed.html', 'code'],
+        ['sop_wi_signed_json', 'sop_wi_signed.json', 'code'],
+        ['sop_wi_signed_summary_md', 'sop_wi_signed_summary.md', 'code'],
+        ['sop_wi_signed_pdf', 'sop_wi_signed.pdf'],
         ['sop_wi_draft_pdf', 'sop_wi_draft.pdf'],
       ],
     },

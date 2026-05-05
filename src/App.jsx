@@ -495,6 +495,7 @@ function ImageSearchPanel({
   onManualGenerate,
   canManualGenerate,
 }) {
+  const [failedImages, setFailedImages] = useState({});
   if (busy) {
     return (
       <div className="image-search-panel loading">
@@ -506,12 +507,15 @@ function ImageSearchPanel({
   if (!search) return null;
   const results = search.results || [];
   const notConfigured = search.status === 'not_configured';
+  const failed = search.status === 'failed';
+  const showManualFallback = notConfigured || failed;
   return (
     <div className="image-search-panel">
       <div className="image-search-head">
         <div>
           <strong>{notConfigured ? '图片搜索未配置' : '候选图片'}</strong>
           <span>{search.provider || 'unknown'} / {search.status || 'unknown'} / {results.length} results</span>
+          {search.expanded_query ? <span>expanded_query: {search.expanded_query}</span> : null}
         </div>
         {search.search_id ? <code>{search.search_id}</code> : null}
       </div>
@@ -521,7 +525,7 @@ function ImageSearchPanel({
       {Array.isArray(search.warnings) && search.warnings.length ? (
         <div className="image-search-warnings">{search.warnings.join('；')}</div>
       ) : null}
-      {notConfigured ? (
+      {showManualFallback ? (
         <ManualImageUrlForm
           imageUrl={manualImageUrl}
           sourceUrl={manualSourceUrl}
@@ -537,11 +541,21 @@ function ImageSearchPanel({
           {results.map((candidate) => (
             <article key={candidate.id} className="candidate-card">
               <div className="candidate-thumb">
-                <img src={candidate.thumbnail_url || candidate.image_url} alt={candidate.title || 'candidate connector'} />
+                {failedImages[candidate.id] ? (
+                  <div className="thumb-fallback">缩略图加载失败，但仍可尝试使用原图 URL</div>
+                ) : (
+                  <img
+                    src={candidate.thumbnail_url || candidate.image_url}
+                    alt={candidate.title || 'candidate connector'}
+                    onError={() => setFailedImages((current) => ({ ...current, [candidate.id]: true }))}
+                  />
+                )}
               </div>
               <div className="candidate-body">
                 <strong>{candidate.title || 'Untitled candidate'}</strong>
                 <span>{candidate.domain || domainFromUrl(candidate.source_url) || 'unknown source'}</span>
+                <span>provider: {candidate.provider || search.provider || 'unknown'}</span>
+                <span>score: {candidate.score ?? 'n/a'}</span>
                 <p>{candidate.rank_reason || 'Connector-like visual candidate'}</p>
                 {candidate.source_url ? (
                   <a href={candidate.source_url} target="_blank" rel="noreferrer">source_url</a>

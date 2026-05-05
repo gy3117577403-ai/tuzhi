@@ -423,6 +423,19 @@ a {
   display: block;
 }
 
+.thumb-fallback {
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  display: grid;
+  place-items: center;
+  color: #765000;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.45;
+  background: rgba(255, 248, 230, 0.9);
+}
+
 .candidate-body {
   padding: 10px;
   display: grid;

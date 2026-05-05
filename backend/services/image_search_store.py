@@ -14,16 +14,26 @@ from services.file_store import OUTPUTS_ROOT
 SEARCH_ROOT = OUTPUTS_ROOT / "searches"
 
 
-def create_search_record(query: str, provider: str, status: str, results: list[dict[str, Any]], warnings: list[str]) -> dict[str, Any]:
+def create_search_record(
+    query: str,
+    provider: str,
+    status: str,
+    results: list[dict[str, Any]],
+    warnings: list[str],
+    expanded_query: str = "",
+    ranker: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     search_id = uuid.uuid4().hex
     normalized = [_candidate_payload(item, index + 1, search_id) for index, item in enumerate(results)]
     record = {
         "search_id": search_id,
         "query": query,
+        "expanded_query": expanded_query or query,
         "provider": provider,
         "status": status,
         "results": normalized,
         "warnings": warnings,
+        "ranker": ranker or {"enabled": True, "strategy": "part_number_domain_image_quality"},
         "created_at": _now(),
     }
     save_search_results_json(record)
@@ -67,6 +77,9 @@ def _candidate_payload(item: dict[str, Any], rank: int, search_id: str) -> dict[
         "height": item.get("height"),
         "score": item.get("score", max(0.1, round(1.0 - (rank - 1) * 0.08, 3))),
         "rank_reason": item.get("rank_reason") or "title/source appears connector-related",
+        "provider": item.get("provider") or "",
+        "provider_raw": item.get("provider_raw") or {},
+        "image_probe_ok": item.get("image_probe_ok"),
     }
 
 

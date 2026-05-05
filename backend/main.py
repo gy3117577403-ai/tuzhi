@@ -272,6 +272,8 @@ def create_connector_image_search(payload: ImageSearchRequest) -> dict[str, Any]
         status=pack.get("status") or "failed",
         results=pack.get("results") or [],
         warnings=pack.get("warnings") or [],
+        expanded_query=pack.get("expanded_query") or pack.get("query") or query,
+        ranker=pack.get("ranker") or {},
     )
 
 

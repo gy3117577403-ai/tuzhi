@@ -49,6 +49,7 @@ export type ConnectorImageSearchCandidate = {
   domain: string;
   rank_reason?: string;
   score?: number;
+  provider?: string;
   width?: number;
   height?: number;
 };
@@ -56,6 +57,7 @@ export type ConnectorImageSearchCandidate = {
 export type ConnectorImageSearch = {
   search_id: string;
   query: string;
+  expanded_query?: string;
   provider: string;
   status: 'success' | 'not_configured' | 'failed' | 'manual' | string;
   results: ConnectorImageSearchCandidate[];

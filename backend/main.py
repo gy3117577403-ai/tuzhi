@@ -46,11 +46,14 @@ from services.connector_params import (
 from services.domain_policy import classify_source_url
 from services.export_service import export_job_files
 from services.file_store import create_job_dir, file_path, load_params, new_job_id, save_params, save_upload
+from services.image_search_client import search_connector_images
+from services.image_search_store import create_search_record, get_search_record, resolve_candidate
 from services.official_cad_downloader import can_use_official_cad, download_official_cad, write_official_params
 from services.search_to_cad_pipeline import (
     generate_cad_from_search,
     merge_image_search_fallback_notice,
 )
+from services.source_audit import create_source_manifest, augment_params_json, summarize_manifest
 from services.registry_history import get_registry_item_history, verify_registry_history_signatures
 from services.registry_search import get_registry_stats, search_registry_items
 
@@ -69,6 +72,25 @@ app.add_middleware(
 class ImageSearchJobRequest(BaseModel):
     query: str
     selected_image_url: str = ""
+
+
+class ImageSearchRequest(BaseModel):
+    query: str
+    provider: str | None = None
+    max_results: int | None = None
+
+
+class SelectedImageJobRequest(BaseModel):
+    search_id: str
+    candidate_id: str
+    query: str | None = None
+
+
+class ManualImageUrlJobRequest(BaseModel):
+    query: str
+    image_url: str
+    title: str = "manual image URL"
+    source_url: str = ""
 
 
 class OfficialUrlJobRequest(BaseModel):
@@ -238,6 +260,76 @@ def create_job_from_image_search(payload: ImageSearchJobRequest) -> dict[str, An
     return job_payload(job_id, params)
 
 
+@app.post("/api/connector-cad/image-search")
+def create_connector_image_search(payload: ImageSearchRequest) -> dict[str, Any]:
+    query = (payload.query or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    pack = search_connector_images(query, payload.max_results, payload.provider)
+    return create_search_record(
+        query=pack.get("query") or query,
+        provider=pack.get("provider") or payload.provider or "",
+        status=pack.get("status") or "failed",
+        results=pack.get("results") or [],
+        warnings=pack.get("warnings") or [],
+    )
+
+
+@app.get("/api/connector-cad/image-search/{search_id}")
+def get_connector_image_search(search_id: str) -> dict[str, Any]:
+    return get_search_record(search_id)
+
+
+@app.post("/api/connector-cad/jobs/from-selected-image")
+def create_job_from_selected_image(payload: SelectedImageJobRequest) -> dict[str, Any]:
+    record, candidate = resolve_candidate(payload.search_id, payload.candidate_id)
+    query = (payload.query or record.get("query") or candidate.get("title") or "").strip()
+    return create_visual_search_job(
+        query=query,
+        selected_image_url=str(candidate.get("image_url") or candidate.get("thumbnail_url") or ""),
+        selected_image=candidate,
+        search_pack=record,
+    )
+
+
+@app.post("/api/connector-cad/jobs/from-manual-image-url")
+def create_job_from_manual_image_url(payload: ManualImageUrlJobRequest) -> dict[str, Any]:
+    query = (payload.query or "").strip()
+    image_url = (payload.image_url or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    if not image_url:
+        raise HTTPException(status_code=400, detail="image_url is required")
+    selected = {
+        "id": "manual_image",
+        "rank": 1,
+        "title": payload.title,
+        "image_url": image_url,
+        "thumbnail_url": image_url,
+        "source_url": payload.source_url or image_url,
+        "domain": "",
+        "rank_reason": "User supplied manual image URL.",
+    }
+    search_pack = {
+        "search_id": None,
+        "query": query,
+        "provider": "manual_url",
+        "status": "manual",
+        "results": [selected],
+        "warnings": [],
+    }
+    return create_visual_search_job(query=query, selected_image_url=image_url, selected_image=selected, search_pack=search_pack)
+
+
+@app.get("/api/test-assets/connector_reference_1_968970_1.png")
+@app.head("/api/test-assets/connector_reference_1_968970_1.png")
+def get_connector_reference_test_asset() -> FileResponse:
+    path = Path(__file__).resolve().parent / "test_assets" / "connector_reference_1_968970_1.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Test asset not found")
+    return FileResponse(path, media_type="image/png", filename=path.name)
+
+
 @app.post("/api/connector-cad/jobs/from-official-url")
 async def create_job_from_official_url(payload: OfficialUrlJobRequest) -> dict[str, Any]:
     job_id = new_job_id()
@@ -261,6 +353,42 @@ async def create_job_from_official_url(payload: OfficialUrlJobRequest) -> dict[s
         generated_files = download_official_cad(cad_source, output_dir)
         write_official_params(params, output_dir)
         params = finalize_source_audit(job_id, output_dir, params, {**cad_source, "official_cad_downloaded": True}, generated_files)
+        save_params(job_id, params)
+    except Exception as exc:
+        params = mark_failed(params, str(exc))
+        save_params(job_id, params)
+    return job_payload(job_id, params)
+
+
+def create_visual_search_job(
+    query: str,
+    selected_image_url: str,
+    selected_image: dict[str, Any],
+    search_pack: dict[str, Any],
+) -> dict[str, Any]:
+    if not selected_image_url:
+        raise HTTPException(status_code=400, detail="selected image URL is empty")
+    job_id = new_job_id()
+    output_dir = create_job_dir(job_id)
+    cad_source = cad_source_resolver.resolve(text=query)
+    params = build_initial_params(input_type="text", text=query, filename=None)
+    params = apply_cad_source_metadata(params, cad_source)
+    tried, search_meta = generate_cad_from_search(
+        query,
+        output_dir,
+        params,
+        selected_image_url=selected_image_url,
+        selected_image=selected_image,
+        search_pack_override=search_pack,
+    )
+    if tried is not None:
+        params = tried
+    else:
+        params = configure_text_appearance_pipeline(params, query)
+        params = merge_image_search_fallback_notice(params, search_meta)
+    try:
+        generated_files = export_job_files(params, output_dir)
+        params = finalize_source_audit(job_id, output_dir, params, {**cad_source, "official_cad_downloaded": False}, generated_files)
         save_params(job_id, params)
     except Exception as exc:
         params = mark_failed(params, str(exc))

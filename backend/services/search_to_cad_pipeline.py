@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from services.connector_params import ConnectorCadParams, DimensionValue, PROVISIONAL_WARNING
+from services.image_download import download_image_to_job
 from services.image_feature_extractor import extract_image_features, summarize_features_for_storage
 from services.image_search_client import search_connector_images
 from services.search_result_ranker import rank_connector_image_results
@@ -94,6 +95,8 @@ def generate_cad_from_search(
     output_dir: Path,
     base_params: ConnectorCadParams,
     selected_image_url: str | None = None,
+    selected_image: dict[str, Any] | None = None,
+    search_pack_override: dict[str, Any] | None = None,
 ) -> tuple[ConnectorCadParams | None, dict[str, Any]]:
     """
     Full pipeline: search → rank → download → features → recipe-ready params.
@@ -105,8 +108,8 @@ def generate_cad_from_search(
     img_path = output_dir / "reference_selected.png"
     search_pack: dict[str, Any] = {}
 
-    if selected_image_url and selected_image_url.strip().startswith(("http://", "https://")):
-        search_pack = {
+    if selected_image_url:
+        search_pack = search_pack_override or {
             "query": query,
             "provider": "manual_url",
             "status": "manual",
@@ -116,11 +119,12 @@ def generate_cad_from_search(
         (output_dir / "image_search_results.json").write_text(
             json.dumps(search_pack, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        ok = download_reference_image(selected_image_url.strip(), img_path)
-        if not ok:
-            meta["error"] = "Failed to download selected_image_url"
+        dl = download_image_to_job(selected_image_url.strip(), output_dir, "reference_selected")
+        if not dl.get("ok"):
+            meta["error"] = dl.get("error") or "Failed to download selected_image_url"
             return None, meta
-        selected = {
+        img_path = Path(dl["saved_path"])
+        selected = selected_image or {
             "title": "user_selected",
             "image_url": selected_image_url.strip(),
             "thumbnail_url": selected_image_url.strip(),
@@ -136,7 +140,7 @@ def generate_cad_from_search(
             "needs_user_selection": False,
         }
         (output_dir / "selected_image.json").write_text(
-            json.dumps({"selected": selected, "rank_summary": rank_summary}, ensure_ascii=False, indent=2),
+            json.dumps({"selected": selected, "rank_summary": rank_summary, "download": dl}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
     else:
@@ -159,11 +163,13 @@ def generate_cad_from_search(
             return None, {**meta, "rank": ranked}
 
         img_url = str(sel.get("image_url") or "").strip()
-        if not download_reference_image(img_url, img_path):
-            return None, {**meta, "error": "download_failed", "rank": ranked}
+        dl = download_image_to_job(img_url, output_dir, "reference_selected")
+        if not dl.get("ok"):
+            return None, {**meta, "error": dl.get("error") or "download_failed", "rank": ranked}
+        img_path = Path(dl["saved_path"])
 
         (output_dir / "selected_image.json").write_text(
-            json.dumps({"selected": sel, "rank_summary": ranked}, ensure_ascii=False, indent=2),
+            json.dumps({"selected": sel, "rank_summary": ranked, "download": dl}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         rank_summary = ranked
@@ -205,7 +211,16 @@ def generate_cad_from_search(
             "image_search_context": {
                 "search": search_pack,
                 "rank": rank_summary,
-                "reference_image_file": "reference_selected.png",
+                "reference_image_file": img_path.name,
+            },
+            "image_search": {
+                "query": query,
+                "provider": search_pack.get("provider"),
+                "status": search_pack.get("status"),
+                "selected": selected,
+                "reference_image_file": img_path.name,
+                "results_file": "image_search_results.json",
+                "selected_image_file": "selected_image.json",
             },
             "appearance_pipeline": {
                 "used": True,

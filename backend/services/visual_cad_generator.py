@@ -154,6 +154,7 @@ def export_visual_proxy_job(params: ConnectorCadParams, output_dir: str | Path) 
     normalized["vision_report_summary"] = params.vision_report_summary
     normalized["uploaded_file_name"] = params.uploaded_file_name
     normalized["image_search_context"] = params.image_search_context
+    normalized["image_search"] = params.image_search
     normalized["disclaimer"] = VISUAL_PROXY_DISCLAIMER
     normalized["warning"] = params.warning or PROVISIONAL_WARNING
 

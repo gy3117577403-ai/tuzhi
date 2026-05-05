@@ -116,13 +116,14 @@ def _bing_like_search(query: str, max_results: int) -> dict[str, Any]:
 def _mock_search(query: str, max_results: int) -> dict[str, Any]:
     """Deterministic fake hits for integration tests (no external API)."""
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", query)[:40].strip("-") or "connector"
+    local_image = "/api/test-assets/connector_reference_1_968970_1.png"
     results: list[dict[str, Any]] = []
     for i in range(min(max_results, 3)):
         results.append(
             {
                 "title": f"[mock] connector product photo {i + 1} — {slug}",
-                "image_url": f"https://picsum.photos/seed/{slug}-{i}/640/480",
-                "thumbnail_url": f"https://picsum.photos/seed/{slug}-t{i}/120/120",
+                "image_url": local_image,
+                "thumbnail_url": local_image,
                 "source_url": f"https://example.com/mock-product/{slug}/{i}",
                 "width": 640,
                 "height": 480,
@@ -131,7 +132,7 @@ def _mock_search(query: str, max_results: int) -> dict[str, Any]:
     return {"status": "success", "results": results, "warnings": ["mock provider: results are placeholders"]}
 
 
-def search_connector_images(query: str, max_results: int | None = None) -> dict[str, Any]:
+def search_connector_images(query: str, max_results: int | None = None, provider_override: str | None = None) -> dict[str, Any]:
     """
     Search product images for a connector query.
 
@@ -140,7 +141,7 @@ def search_connector_images(query: str, max_results: int | None = None) -> dict[
     """
     mr = max_results if max_results is not None else _max_results()
     expanded = expand_connector_search_query(query)
-    provider = _env("IMAGE_SEARCH_PROVIDER").lower() or ""
+    provider = (provider_override or _env("IMAGE_SEARCH_PROVIDER")).lower().strip()
 
     warnings: list[str] = []
 

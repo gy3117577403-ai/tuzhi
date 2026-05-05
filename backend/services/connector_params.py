@@ -93,6 +93,7 @@ class ConnectorCadParams(BaseModel):
     geometry_basis: str | None = None
     manufacturing_accuracy: str | None = None
     image_search_context: dict[str, Any] | None = None
+    image_search: dict[str, Any] | None = None
     uploaded_file_name: str | None = None
 
 

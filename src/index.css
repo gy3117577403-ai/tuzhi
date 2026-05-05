@@ -1632,6 +1632,67 @@ a {
   transform: translateY(-1px);
 }
 
+.download-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.download-group {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 8px;
+  background: #fbfbfb;
+}
+
+.download-group h3 {
+  margin: 0;
+  color: #222;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.download-list {
+  display: grid;
+  gap: 8px;
+}
+
+.download-item {
+  min-height: 38px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #111;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.download-item:hover {
+  transform: translateY(-1px);
+}
+
+.download-item.disabled {
+  color: #999;
+  background: #f4f4f4;
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+.download-item small {
+  color: #9a9a9a;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: right;
+}
+
 .empty-panel {
   min-height: 42px;
   border: 1px solid rgba(0, 0, 0, 0.07);
@@ -1698,98 +1759,224 @@ a {
 
 .flat-cad-panel {
   margin-top: 18px;
-  padding: 16px 18px;
-  border-radius: 14px;
+  padding: 18px;
+  border-radius: 8px;
   border: 1px solid rgba(15, 23, 42, 0.1);
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.95);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  display: grid;
+  gap: 14px;
+}
+
+.flat-cad-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
 }
 
 .flat-cad-head h2 {
-  margin: 0 0 8px;
-  font-size: 1.05rem;
-  font-weight: 600;
+  margin: 0 0 6px;
   color: #0f172a;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0;
 }
 
 .flat-cad-sub {
   margin: 0;
-  font-size: 12px;
   color: #64748b;
+  font-size: 12px;
   line-height: 1.45;
 }
 
-.flat-cad-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 18px;
-  margin: 14px 0;
-  font-size: 12px;
-  color: #334155;
-}
-
-.flat-cad-views,
-.flat-cad-terminal {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px 12px;
-  font-size: 12px;
-  margin-bottom: 10px;
-}
-
-.flat-label {
-  display: block;
-  color: #64748b;
+.flat-cad-pill {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: rgba(255, 247, 237, 0.96);
+  color: #9a3412;
+  border: 1px solid rgba(180, 83, 9, 0.22);
   font-size: 11px;
+  font-weight: 900;
 }
 
-.flat-val {
-  color: #0f172a;
+.flat-cad-pill.no {
+  background: rgba(254, 242, 242, 0.96);
+  color: #991b1b;
+  border-color: rgba(185, 28, 28, 0.22);
 }
 
+.flat-cad-notice,
 .flat-cad-warn {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(251, 191, 36, 0.15);
-  color: #92400e;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: 8px;
   font-size: 12px;
-  line-height: 1.4;
-  margin: 10px 0;
+  font-weight: 800;
+  line-height: 1.45;
 }
 
-.flat-cad-warn-list {
-  margin: 8px 0 0;
-  padding-left: 18px;
+.flat-cad-notice {
+  background: rgba(255, 237, 213, 0.95);
+  color: #7c2d12;
+  border: 1px solid rgba(180, 83, 9, 0.26);
+}
+
+.flat-cad-warn {
+  margin-top: 10px;
+  background: rgba(254, 243, 199, 0.9);
+  color: #92400e;
+  border: 1px solid rgba(180, 83, 9, 0.18);
+}
+
+.flat-cad-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.flat-cad-section h3 {
+  margin: 0;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.flat-cad-meta,
+.flat-cad-detail-grid,
+.sop-summary-grid,
+.flat-cad-file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.flat-cad-detail-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  margin-top: 8px;
+}
+
+.flat-cad-two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.flat-info {
+  min-width: 0;
+  min-height: 54px;
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  background: #fbfbfb;
+}
+
+.flat-info span {
+  color: #64748b;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.flat-info strong {
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.flat-info.complete strong,
+.flat-info.high strong {
+  color: #166534;
+}
+
+.flat-info.caution strong,
+.flat-info.partial strong {
+  color: #9a3412;
+}
+
+.flat-info.insufficient strong,
+.flat-info.no strong {
+  color: #991b1b;
+}
+
+.flat-cad-reason {
+  margin: 0;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.flat-cad-complete {
+  padding: 10px 11px;
+  border-radius: 8px;
+  background: rgba(240, 253, 244, 0.95);
+  color: #166534;
+  border: 1px solid rgba(22, 101, 52, 0.18);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.flat-cad-complete.partial {
+  background: rgba(255, 247, 237, 0.95);
+  color: #9a3412;
+  border-color: rgba(180, 83, 9, 0.2);
+}
+
+.flat-cad-complete.insufficient {
+  background: rgba(254, 242, 242, 0.95);
+  color: #991b1b;
+  border-color: rgba(185, 28, 28, 0.2);
+}
+
+.flat-cad-list {
+  display: grid;
+  gap: 5px;
   color: #64748b;
   font-size: 11px;
 }
 
-.flat-cad-missing {
-  font-size: 12px;
-  color: #b45309;
-  margin: 8px 0;
+.flat-cad-list strong {
+  color: #334155;
+}
+
+.flat-cad-list ul {
+  margin: 0;
+  padding-left: 18px;
 }
 
 .flat-cad-svg-wrap {
-  margin-top: 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: auto;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.07);
   background: #f8fafc;
-  max-height: 380px;
+  min-height: 260px;
+  max-height: 520px;
 }
 
 .flat-cad-svg {
   display: block;
   width: 100%;
+  min-width: 620px;
   height: auto;
 }
 
+.flat-cad-unavailable {
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px dashed rgba(0, 0, 0, 0.16);
+  color: #777;
+  background: #f6f6f6;
+  font-size: 12px;
+}
+
 .flat-cad-error {
-  margin: 10px 0 0;
+  margin: 0;
   font-size: 12px;
   color: #b91c1c;
 }
@@ -1814,6 +2001,19 @@ a {
 
   .candidate-grid {
     grid-template-columns: 1fr;
+  }
+
+  .flat-cad-head,
+  .flat-cad-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .flat-cad-head {
+    display: grid;
+  }
+
+  .flat-cad-svg {
+    min-width: 520px;
   }
 
   .registry-stats {

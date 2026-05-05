@@ -1496,148 +1496,251 @@ function FlatCadPanel({ job }) {
   const fc = params.flat_cad;
   const svgUrl = job.files?.flat_views_svg;
   if (!fc?.enabled) return null;
+
   const sc = fc.structure_completeness || {};
-  const mis = fc.missing_items || [];
-  const tis = fc.terminal_insertion_summary || {};
-  const vcs = fc.view_classification_summary || {};
-  const needManual = tis.requires_manual_confirmation !== false;
+  const missing = fc.missing_items || [];
+  const terminal = fc.terminal_insertion_summary || {};
+  const viewClass = fc.view_classification_summary || {};
+  const needManual = terminal.requires_manual_confirmation !== false || terminal.confidence !== 'high';
+  const sop = deriveSopSummary(fc, job);
+  const completenessText = structureCompletenessMessage(sc.status);
+
   return (
     <div className="flat-cad-panel">
       <div className="flat-cad-head">
-        <h2>平面 CAD 工程視圖</h2>
-        <p className="flat-cad-sub">
-          核心交付物為 2D 示意圖（DXF / SVG / JSON），適用於 SOP / WI / QC；3D 僅為輔助預覽。
-        </p>
-      </div>
-      <div className="flat-cad-meta">
-        <span>狀態：<strong>{fc.status || '—'}</strong></span>
-        <span>結構完整性：<strong>{sc.status || '—'}</strong></span>
-        <span>分數：<strong>{sc.score != null ? sc.score : '—'}</strong></span>
-      </div>
-      <div className="flat-cad-views">
         <div>
-          <span className="flat-label">正面／對插面</span>
-          <span className="flat-val">{vcs.mating_face_visible ? '影像側推定可見（需確認）' : '示意合成'}</span>
+          <h2>平面 CAD 视图 / 端子插入方向图</h2>
+          <p className="flat-cad-sub">由搜索图片/上传图片生成的工艺示意平面图，非原厂制造尺寸图。</p>
         </div>
-        <div>
-          <span className="flat-label">反面／入線面</span>
-          <span className="flat-val">{vcs.wire_entry_face_visible ? '後側線束出口線索' : '示意合成'}</span>
-        </div>
-        <div>
-          <span className="flat-label">端子插入面（推定）</span>
-          <span className="flat-val">{vcs.terminal_insertion_face_likely || '—'}</span>
-        </div>
-        <div>
-          <span className="flat-label">插入方向（推定）</span>
-          <span className="flat-val">{tis.insertion_direction || '—'}</span>
+        <span className={`flat-cad-pill ${sop.sop_ready}`}>SOP/WI：{sop.sop_ready}</span>
+      </div>
+
+      <div className="flat-cad-notice" role="alert">
+        <AlertTriangle size={17} />
+        <span>该平面 CAD 由搜索图片/上传图片生成，仅用于工艺示意、SOP、WI、端子插入方向参考，不可直接作为制造尺寸依据。</span>
+      </div>
+
+      <div className="flat-cad-section">
+        <h3>状态总览</h3>
+        <div className="flat-cad-meta">
+          <FlatInfo label="flat_cad.status" value={fc.status} />
+          <FlatInfo label="结构完整性" value={sc.status} tone={sc.status} />
+          <FlatInfo label="结构评分" value={sc.score != null ? sc.score : '未生成'} />
+          <FlatInfo label="model_origin" value={params.model_origin} />
+          <FlatInfo label="制造尺寸依据" value={params.manufacturing_accuracy || 'not_manufacturing_grade'} tone="caution" />
+          <FlatInfo label="visual_proxy_only" value={String(params.visual_proxy_only ?? true)} />
+          <FlatInfo label="人工确认" value={needManual ? '需要' : '可选'} tone={needManual ? 'caution' : 'complete'} />
         </div>
       </div>
-      <div className="flat-cad-terminal">
-        <span className="flat-label">建議插入面</span>
-        <span>{tis.recommended_insertion_face || '—'}</span>
-        <span className="flat-label">信心度</span>
-        <span>{tis.confidence || '—'}</span>
-        <span className="flat-label">需人工確認</span>
-        <span>{needManual ? '是' : '否'}</span>
+
+      <div className="flat-cad-section">
+        <h3>四视图总览 SVG 预览</h3>
+        {svgUrl ? (
+          <div className="flat-cad-svg-wrap">
+            <img className="flat-cad-svg" src={svgUrl} alt="四视图总览 SVG 预览" />
+          </div>
+        ) : (
+          <div className="flat-cad-unavailable">该任务未生成 SVG 预览，可在下载区检查平面 CAD 文件。</div>
+        )}
       </div>
-      <div className="flat-cad-warn" role="alert">
-        <AlertTriangle size={16} />
-        <span>端子插入方向為推斷結果，須依實物或廠家資料確認。非原廠尺寸圖。</span>
+
+      <div className="flat-cad-section">
+        <h3>视图下载区</h3>
+        <div className="flat-cad-file-grid">
+          <DownloadItem job={job} fileKey="flat_front_dxf" label="正面 / 对插面 DXF" />
+          <DownloadItem job={job} fileKey="flat_rear_dxf" label="反面 / 入线面 DXF" />
+          <DownloadItem job={job} fileKey="flat_top_dxf" label="俯视图 DXF" />
+          <DownloadItem job={job} fileKey="flat_side_dxf" label="侧视图 DXF" />
+          <DownloadItem job={job} fileKey="flat_insertion_dxf" label="端子插入方向 DXF" />
+          <DownloadItem job={job} fileKey="flat_views_svg" label="SVG 总览" />
+          <DownloadItem job={job} fileKey="flat_recipe_json" label="2D recipe JSON" icon="code" />
+          <DownloadItem job={job} fileKey="flat_view_classification_json" label="视图分类 JSON" icon="code" />
+          <DownloadItem job={job} fileKey="flat_terminal_insertion_json" label="端子插入判断 JSON" icon="code" />
+          <DownloadItem job={job} fileKey="flat_structure_report_json" label="结构完整性报告 JSON" icon="code" />
+        </div>
       </div>
-      {sc.status && sc.status !== 'complete' && mis.length ? (
-        <div className="flat-cad-missing">
-          <strong>缺漏項目</strong>
-          <ul>{mis.map((m) => <li key={m}>{m}</li>)}</ul>
+
+      <div className="flat-cad-section flat-cad-two-col">
+        <div>
+          <h3>端子插入方向判断</h3>
+          <div className="flat-cad-detail-grid">
+            <FlatInfo label="recommended_insertion_face" value={terminal.recommended_insertion_face} />
+            <FlatInfo label="opposite_mating_face" value={terminal.opposite_mating_face} />
+            <FlatInfo label="insertion_direction" value={terminal.insertion_direction} />
+            <FlatInfo label="view_for_work_instruction" value={terminal.view_for_work_instruction || terminal.recommended_insertion_face} />
+            <FlatInfo label="view_for_pin_check" value={terminal.view_for_pin_check || terminal.opposite_mating_face || 'front_mating_face'} />
+            <FlatInfo label="confidence" value={terminal.confidence} tone={terminal.confidence === 'high' ? 'complete' : 'caution'} />
+            <FlatInfo label="requires_manual_confirmation" value={needManual ? 'true' : 'false'} tone={needManual ? 'caution' : 'complete'} />
+          </div>
+          <p className="flat-cad-reason">
+            推断依据：{viewClass.terminal_insertion_face_likely || terminal.recommended_insertion_face || '系统根据视图分类与线束入口线索推断'}。
+          </p>
+          {needManual ? (
+            <div className="flat-cad-warn" role="alert">
+              <AlertTriangle size={16} />
+              <span>端子插入方向为系统推断，必须由工艺/工程人员确认。</span>
+            </div>
+          ) : null}
         </div>
-      ) : null}
-      {fc.warnings && fc.warnings.length ? (
-        <ul className="flat-cad-warn-list">
-          {fc.warnings.map((w) => (
-            <li key={w}>{w}</li>
-          ))}
-        </ul>
-      ) : null}
-      {svgUrl ? (
-        <div className="flat-cad-svg-wrap">
-          <img className="flat-cad-svg" src={svgUrl} alt="平面視圖總覽 SVG" />
+
+        <div>
+          <h3>结构完整性检查</h3>
+          <div className={`flat-cad-complete ${sc.status || 'partial'}`}>{completenessText}</div>
+          <div className="flat-cad-detail-grid compact">
+            <FlatInfo label="status" value={sc.status} tone={sc.status} />
+            <FlatInfo label="score" value={sc.score != null ? sc.score : '未生成'} />
+          </div>
+          {missing.length ? (
+            <div className="flat-cad-list">
+              <strong>missing_items</strong>
+              <ul>{missing.map((item) => <li key={item}>{item}</li>)}</ul>
+            </div>
+          ) : null}
+          {fc.warnings?.length ? (
+            <div className="flat-cad-list">
+              <strong>warnings</strong>
+              <ul>{fc.warnings.map((item) => <li key={item}>{item}</li>)}</ul>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
+
+      <div className="flat-cad-section">
+        <h3>SOP / WI 图纸可用性摘要</h3>
+        <div className="sop-summary-grid">
+          <FlatInfo label="正面孔位图" value={sop.front_view_available ? '可用' : '待确认'} tone={sop.front_view_available ? 'complete' : 'caution'} />
+          <FlatInfo label="反面入线图" value={sop.rear_view_available ? '可用' : '待确认'} tone={sop.rear_view_available ? 'complete' : 'caution'} />
+          <FlatInfo label="端子插入方向图" value={sop.insertion_direction_available ? '可用但需确认' : '待确认'} tone="caution" />
+          <FlatInfo label="腔位编号" value={sop.cavity_numbering_available ? '可用' : '待确认'} tone={sop.cavity_numbering_available ? 'complete' : 'caution'} />
+          <FlatInfo label="结构完整性" value={sop.structure_status} tone={sop.structure_status} />
+          <FlatInfo label="是否建议进入 SOP 生成" value={sop.sop_ready} tone={sop.sop_ready === 'no' ? 'insufficient' : 'caution'} />
+        </div>
+        <p className="flat-cad-reason">可作为 SOP/WI 示意图基础，需工程确认后使用。</p>
+      </div>
+
       {fc.status === 'failed' && fc.error ? (
-        <p className="flat-cad-error">平面視圖生成失敗：{fc.error}</p>
+        <p className="flat-cad-error">平面视图生成失败：{fc.error}</p>
       ) : null}
     </div>
   );
 }
 
 function DownloadPanel({ job }) {
-  const params = job.params || {};
-  const official = params.model_origin === 'official_cad';
-  const completed = job.status === 'completed';
-  const ap = params.appearance_pipeline || {};
-  const uploadVisual = params.model_origin === 'image_upload_approximated';
-  const showImg =
-    job.files?.image_features && (ap.image_features_file || uploadVisual);
-  const showVision =
-    job.files?.vision_report && (ap.vision_report_file || uploadVisual);
-  const showSearch = job.files?.image_search_results;
-  const showSel = job.files?.selected_image;
-  const showRecipe = job.files?.visual_recipe || params.visual_recipe;
+  const groups = [
+    {
+      title: 'A. 3D / 原有文件',
+      items: [
+        ['model_step', 'model.step'],
+        ['model_stl', 'model.stl'],
+        ['drawing_dxf', 'drawing.dxf'],
+        ['params_json', 'params.json', 'code'],
+        ['source_manifest', 'source_manifest.json', 'shield'],
+      ],
+    },
+    {
+      title: 'B. 搜索/图片视觉文件',
+      items: [
+        ['image_search_results', 'image_search_results.json', 'code'],
+        ['selected_image', 'selected_image.json', 'code'],
+        ['image_features', 'image_features.json', 'code'],
+        ['vision_report', 'vision_report.json', 'code'],
+        ['visual_recipe', 'visual_recipe.json', 'code'],
+      ],
+    },
+    {
+      title: 'C. 平面 CAD 工程视图',
+      items: [
+        ['flat_front_dxf', 'connector_front_view.dxf'],
+        ['flat_rear_dxf', 'connector_rear_view.dxf'],
+        ['flat_top_dxf', 'connector_top_view.dxf'],
+        ['flat_side_dxf', 'connector_side_view.dxf'],
+        ['flat_insertion_dxf', 'connector_insertion_direction.dxf'],
+        ['flat_views_svg', 'connector_flat_views.svg'],
+      ],
+    },
+    {
+      title: 'D. 平面判断与报告',
+      items: [
+        ['flat_recipe_json', 'connector_2d_recipe.json', 'code'],
+        ['flat_view_classification_json', 'connector_view_classification.json', 'code'],
+        ['flat_terminal_insertion_json', 'terminal_insertion.json', 'code'],
+        ['flat_structure_report_json', 'structure_completeness_report.json', 'code'],
+      ],
+    },
+  ];
+
   return (
     <>
       <div className="section-label">导出文件</div>
-      <div className="downloads">
-        <a href={fileUrl(job, 'model_step')} download><span>{official ? '下载官方 STEP' : completed ? '下载确认版 STEP' : '下载预览 STEP'}</span><Download size={14} /></a>
-        <a href={fileUrl(job, 'drawing_dxf')} download><span>{official ? '下载来源 DXF' : completed ? '下载确认版 DXF' : '下载预览 DXF'}</span><Code size={14} /></a>
-        <a href={fileUrl(job, 'model_stl')} download><span>{official ? '下载官方模型预览 STL' : completed ? '下载确认版 STL' : '下载预览 STL'}</span><Download size={14} /></a>
-        <a href={fileUrl(job, 'params_json')} download><span>{official ? '下载来源记录' : completed ? '下载确认版参数记录' : '下载参数记录'}</span><Download size={14} /></a>
-        <a href={fileUrl(job, 'source_manifest')} download><span>下载来源审计 JSON</span><ShieldCheck size={14} /></a>
-        {showImg ? (
-          <a href={fileUrl(job, 'image_features')} download><span>下载图像特征 JSON</span><Code size={14} /></a>
-        ) : null}
-        {showVision ? (
-          <a href={fileUrl(job, 'vision_report')} download><span>下载视觉理解 JSON</span><Code size={14} /></a>
-        ) : null}
-        {showSearch ? (
-          <a href={fileUrl(job, 'image_search_results')} download><span>下载图片搜索结果 JSON</span><Code size={14} /></a>
-        ) : null}
-        {showSel ? (
-          <a href={fileUrl(job, 'selected_image')} download><span>下载选中参考图元数据 JSON</span><Code size={14} /></a>
-        ) : null}
-        {showRecipe && job.files?.visual_recipe ? (
-          <a href={fileUrl(job, 'visual_recipe')} download><span>下载视觉配方 JSON</span><Code size={14} /></a>
-        ) : null}
-        {job.files?.flat_front_dxf ? (
-          <a href={fileUrl(job, 'flat_front_dxf')} download><span>下載平面正面 DXF</span><Download size={14} /></a>
-        ) : null}
-        {job.files?.flat_rear_dxf ? (
-          <a href={fileUrl(job, 'flat_rear_dxf')} download><span>下載平面反面／入線面 DXF</span><Download size={14} /></a>
-        ) : null}
-        {job.files?.flat_top_dxf ? (
-          <a href={fileUrl(job, 'flat_top_dxf')} download><span>下載平面俯視 DXF</span><Download size={14} /></a>
-        ) : null}
-        {job.files?.flat_side_dxf ? (
-          <a href={fileUrl(job, 'flat_side_dxf')} download><span>下載平面側視 DXF</span><Download size={14} /></a>
-        ) : null}
-        {job.files?.flat_insertion_dxf ? (
-          <a href={fileUrl(job, 'flat_insertion_dxf')} download><span>下載端子插入方向 DXF</span><Download size={14} /></a>
-        ) : null}
-        {job.files?.flat_views_svg ? (
-          <a href={fileUrl(job, 'flat_views_svg')} download><span>下載平面總覽 SVG</span><Download size={14} /></a>
-        ) : null}
-        {job.files?.flat_recipe_json ? (
-          <a href={fileUrl(job, 'flat_recipe_json')} download><span>下載 2D recipe JSON</span><Code size={14} /></a>
-        ) : null}
-        {job.files?.flat_view_classification_json ? (
-          <a href={fileUrl(job, 'flat_view_classification_json')} download><span>下載視圖分類 JSON</span><Code size={14} /></a>
-        ) : null}
-        {job.files?.flat_terminal_insertion_json ? (
-          <a href={fileUrl(job, 'flat_terminal_insertion_json')} download><span>下載端子插入判斷 JSON</span><Code size={14} /></a>
-        ) : null}
-        {job.files?.flat_structure_report_json ? (
-          <a href={fileUrl(job, 'flat_structure_report_json')} download><span>下載結構完整性報告 JSON</span><Code size={14} /></a>
-        ) : null}
+      <div className="download-groups">
+        {groups.map((group) => (
+          <DownloadGroup key={group.title} title={group.title} items={group.items} job={job} />
+        ))}
       </div>
     </>
+  );
+}
+
+function FlatInfo({ label, value, tone = '' }) {
+  return (
+    <div className={`flat-info ${tone || ''}`}>
+      <span>{label}</span>
+      <strong>{value ?? '未生成'}</strong>
+    </div>
+  );
+}
+
+function deriveSopSummary(fc, job) {
+  const files = job.files || {};
+  const sc = fc.structure_completeness || {};
+  const terminal = fc.terminal_insertion_summary || {};
+  const structureStatus = sc.status || 'partial';
+  const hasTerminal = Boolean(files.flat_insertion_dxf || terminal.recommended_insertion_face);
+  return {
+    front_view_available: Boolean(files.flat_front_dxf),
+    rear_view_available: Boolean(files.flat_rear_dxf),
+    insertion_direction_available: hasTerminal,
+    cavity_numbering_available: Boolean(files.flat_front_dxf && files.flat_rear_dxf),
+    structure_status: structureStatus,
+    sop_ready: structureStatus === 'insufficient' ? 'no' : 'caution',
+  };
+}
+
+function structureCompletenessMessage(status) {
+  if (status === 'complete') return '结构视图完整：正面、反面、俯视、侧视、端子插入方向均已生成。';
+  if (status === 'insufficient') return '结构视图不足，不建议用于 SOP。';
+  return '结构视图部分完整，需要补充确认。';
+}
+
+function DownloadGroup({ title, items, job }) {
+  return (
+    <div className="download-group">
+      <h3>{title}</h3>
+      <div className="download-list">
+        {items.map(([fileKey, label, icon]) => (
+          <DownloadItem key={fileKey} job={job} fileKey={fileKey} label={label} icon={icon} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DownloadItem({ job, fileKey, label, icon = 'download' }) {
+  const available = Boolean(job.files?.[fileKey]);
+  const Icon = icon === 'code' ? Code : icon === 'shield' ? ShieldCheck : Download;
+  if (!available) {
+    return (
+      <div className="download-item disabled" title="该任务未生成此文件">
+        <span>{label}</span>
+        <small>该任务未生成此文件</small>
+      </div>
+    );
+  }
+  return (
+    <a className="download-item" href={fileUrl(job, fileKey)} download>
+      <span>{label}</span>
+      <Icon size={14} />
+    </a>
   );
 }
 

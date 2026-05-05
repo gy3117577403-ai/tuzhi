@@ -132,7 +132,7 @@ def _serpapi_search(original_query: str, expanded_query: str, max_results: int) 
             title=_str(item.get("title") or item.get("name")),
             image_url=_str(item.get("original") or item.get("image_url") or item.get("link") or item.get("url")),
             thumbnail_url=_str(item.get("thumbnail") or item.get("thumbnail_url") or item.get("thumbnailUrl")),
-            source_url=_str(item.get("source") or item.get("source_url") or item.get("link") or item.get("page")),
+            source_url=_str(item.get("source_url") or item.get("link") or item.get("page") or item.get("hostPageUrl")),
             width=item.get("image_width") or item.get("width"),
             height=item.get("image_height") or item.get("height"),
             provider_raw=_safe_raw(item),

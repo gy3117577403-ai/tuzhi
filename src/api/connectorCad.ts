@@ -61,6 +61,18 @@ export type ConnectorImageSearchCandidate = {
     normalized_matched?: string;
     reason?: string;
   };
+  match_evidence?: {
+    evidence_level?: 'high' | 'medium' | 'low' | 'unknown' | string;
+    evidence_score?: number;
+    title_has_exact?: boolean;
+    source_url_has_exact?: boolean;
+    image_url_has_exact?: boolean;
+    thumbnail_url_has_exact?: boolean;
+    domain_trusted?: boolean;
+    download_probe_ok?: boolean;
+    reasons?: string[];
+    warnings?: string[];
+  };
 };
 
 export type ConnectorImageSearch = {

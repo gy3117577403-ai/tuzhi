@@ -520,10 +520,13 @@ function ImageSearchPanel({
   const showManualFallback = notConfigured || failed;
   const renderCandidate = (candidate) => {
     const partMatch = candidate.part_match || {};
+    const evidence = candidate.match_evidence || {};
     const matchLevel = partMatch.match_level || 'none';
+    const evidenceLevel = evidence.evidence_level || 'unknown';
     const isNearMiss = matchLevel === 'near_miss';
+    const exactLowEvidence = matchLevel === 'exact' && evidenceLevel === 'low';
     return (
-      <article key={candidate.id} className={`candidate-card match-${matchLevel}`}>
+      <article key={candidate.id} className={`candidate-card match-${matchLevel} evidence-${evidenceLevel}`}>
         <div className="candidate-thumb">
           {failedImages[candidate.id] ? (
             <div className="thumb-fallback">缩略图加载失败，但仍可尝试使用原图 URL</div>
@@ -539,13 +542,26 @@ function ImageSearchPanel({
           <div className="candidate-title-row">
             <strong>{candidate.title || 'Untitled candidate'}</strong>
             <PartMatchBadge level={matchLevel} />
+            <EvidenceBadge level={evidenceLevel} />
           </div>
           <span>{candidate.domain || domainFromUrl(candidate.source_url) || 'unknown source'}</span>
           <span>provider: {candidate.provider || search.provider || 'unknown'}</span>
           <span>search_round: {candidate.search_round || 'initial'}</span>
           <span>score: {candidate.score ?? 'n/a'}</span>
+          <span>evidence_score: {evidence.evidence_score ?? 'n/a'}</span>
           {partMatch.matched_part_number ? <span>matched_part_number: {partMatch.matched_part_number}</span> : null}
           {partMatch.reason ? <p className={`part-match-reason ${isNearMiss ? 'danger' : ''}`}>{partMatch.reason}</p> : null}
+          <div className="evidence-flags">
+            <span>title exact: {formatBool(evidence.title_has_exact)}</span>
+            <span>source exact: {formatBool(evidence.source_url_has_exact)}</span>
+            <span>image exact: {formatBool(evidence.image_url_has_exact)}</span>
+            <span>thumb exact: {formatBool(evidence.thumbnail_url_has_exact)}</span>
+            <span>trusted domain: {formatBool(evidence.domain_trusted)}</span>
+            <span>probe ok: {formatBool(evidence.download_probe_ok)}</span>
+          </div>
+          {Array.isArray(evidence.warnings) && evidence.warnings.length ? (
+            <div className={`evidence-warning ${evidenceLevel === 'low' ? 'danger' : ''}`}>{evidence.warnings.join('；')}</div>
+          ) : null}
           <p>{candidate.rank_reason || 'Connector-like visual candidate'}</p>
           {candidate.source_url ? (
             <a href={candidate.source_url} target="_blank" rel="noreferrer">source_url</a>
@@ -554,6 +570,11 @@ function ImageSearchPanel({
         {isNearMiss ? (
           <div className="candidate-near-alert">
             该候选图可能属于相近料号，不一定是当前输入型号，生成结果仅供外观参考。
+          </div>
+        ) : null}
+        {exactLowEvidence ? (
+          <div className="candidate-near-alert">
+            完整料号命中，但图片证据较弱，请人工核对。
           </div>
         ) : null}
         <button
@@ -674,6 +695,23 @@ function PartMatchBadge({ level }) {
   };
   const normalized = labels[level] ? level : 'none';
   return <span className={`part-match-badge ${normalized}`}>{labels[normalized]}</span>;
+}
+
+function EvidenceBadge({ level }) {
+  const labels = {
+    high: '高可信',
+    medium: '中等可信',
+    low: '低可信，需核对',
+    unknown: '未知可信度',
+  };
+  const normalized = labels[level] ? level : 'unknown';
+  return <span className={`evidence-badge ${normalized}`}>{labels[normalized]}</span>;
+}
+
+function formatBool(value) {
+  if (value === true) return 'yes';
+  if (value === false) return 'no';
+  return 'unknown';
 }
 
 function StatusBadge({ status }) {

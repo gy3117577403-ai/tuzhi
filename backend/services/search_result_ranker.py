@@ -80,6 +80,23 @@ def rank_connector_image_results(
             else:
                 score -= 0.22
                 reasons.append(probe_reason or "image url unavailable")
+        evidence = build_match_evidence(part_match.get("query_part_number") or query, row, part_match)
+        row["match_evidence"] = evidence
+        evidence_score = float(evidence.get("evidence_score") or 0)
+        evidence_level = evidence.get("evidence_level")
+        if part_match.get("match_level") == "exact":
+            if evidence_level == "high":
+                score += 0.12
+                reasons.append("high part evidence")
+            elif evidence_level == "medium":
+                score += 0.04
+                reasons.append("medium part evidence")
+            elif evidence_level == "low":
+                score -= 0.16
+                reasons.append("low part evidence")
+        elif part_match.get("match_level") == "weak" and evidence_score >= 0.65:
+            score += 0.05
+            reasons.append("strong weak-match evidence")
         row["score"] = round(max(0.0, min(1.0, score)), 3)
         row["rank_reason"] = "; ".join(dict.fromkeys(reasons)) or "basic image result"
         scored.append(row)
@@ -280,6 +297,86 @@ def compare_part_number_match(query_part: str, candidate_text: str) -> dict[str,
     return base
 
 
+def build_match_evidence(query_part: str, item: dict[str, Any], part_match: dict[str, Any]) -> dict[str, Any]:
+    query_raw = str(query_part or "").strip()
+    match_level = str(part_match.get("match_level") or "none")
+    title = str(item.get("title") or "")
+    source_url = str(item.get("source_url") or "")
+    image_url = str(item.get("image_url") or "")
+    thumbnail_url = str(item.get("thumbnail_url") or "")
+    domain = _domain(item)
+    domain_trusted = _is_trusted_domain(domain)
+    download_probe_ok = item.get("image_probe_ok")
+    title_has_exact = _field_has_exact(query_raw, title)
+    source_url_has_exact = _field_has_exact(query_raw, source_url)
+    image_url_has_exact = _field_has_exact(query_raw, image_url)
+    thumbnail_url_has_exact = _field_has_exact(query_raw, thumbnail_url)
+    reasons: list[str] = []
+    warnings: list[str] = []
+    score = 0.0
+
+    for label, ok, points in (
+        ("title", title_has_exact, 0.24),
+        ("source_url", source_url_has_exact, 0.24),
+        ("image_url", image_url_has_exact, 0.18),
+        ("thumbnail_url", thumbnail_url_has_exact, 0.1),
+    ):
+        if ok:
+            score += points
+            reasons.append(f"{label} contains exact part number")
+        else:
+            reasons.append(f"{label} does not contain exact part number")
+
+    if domain_trusted:
+        score += 0.16
+        reasons.append("domain is trusted manufacturer/distributor")
+    else:
+        warnings.append("Domain is not in the trusted manufacturer/distributor list.")
+
+    if download_probe_ok is True:
+        score += 0.16
+        reasons.append("image URL probe succeeded")
+    elif download_probe_ok is False:
+        score -= 0.08
+        warnings.append("Image URL probe failed or did not confirm an image.")
+
+    if _looks_garbled(title):
+        score -= 0.12
+        warnings.append("Title text may be garbled; verify the source page manually.")
+
+    if match_level == "exact" and not (image_url_has_exact or thumbnail_url_has_exact):
+        warnings.append("Image URL does not include exact part number; verify selected image visually.")
+    if match_level == "near_miss":
+        score = min(score, 0.25)
+        warnings.append("Candidate appears to be a similar but different part number.")
+    elif match_level == "none":
+        score = min(score, 0.2)
+
+    score = round(max(0.0, min(1.0, score)), 3)
+    has_any_part_evidence = title_has_exact or source_url_has_exact or image_url_has_exact or thumbnail_url_has_exact
+    if match_level == "exact" and (title_has_exact or source_url_has_exact) and domain_trusted and download_probe_ok is True and score >= 0.75:
+        level = "high"
+    elif match_level in {"exact", "weak"} and has_any_part_evidence and score >= 0.45:
+        level = "medium"
+    elif has_any_part_evidence or match_level in {"exact", "weak", "near_miss"}:
+        level = "low"
+    else:
+        level = "unknown"
+
+    return {
+        "evidence_level": level,
+        "evidence_score": score,
+        "title_has_exact": title_has_exact,
+        "source_url_has_exact": source_url_has_exact,
+        "image_url_has_exact": image_url_has_exact,
+        "thumbnail_url_has_exact": thumbnail_url_has_exact,
+        "domain_trusted": domain_trusted,
+        "download_probe_ok": download_probe_ok,
+        "reasons": reasons,
+        "warnings": warnings,
+    }
+
+
 def _probe_image(image_url: str) -> tuple[bool, str]:
     if not image_url:
         return False, "empty image url"
@@ -380,6 +477,30 @@ def _domain(item: dict[str, Any]) -> str:
             except Exception:
                 return ""
     return ""
+
+
+def _is_trusted_domain(domain: str) -> bool:
+    return _contains_any(domain, TRUSTED_MANUFACTURERS) or _contains_any(domain, TRUSTED_DISTRIBUTORS)
+
+
+def _field_has_exact(query_part: str, text: str) -> bool:
+    query_tokens = _part_tokens(query_part)
+    if not query_tokens:
+        return False
+    pattern = _flexible_part_pattern(query_tokens)
+    if pattern and re.search(pattern, str(text or ""), flags=re.I):
+        return True
+    return normalize_part_number(query_part) in normalize_part_number(text)
+
+
+def _looks_garbled(text: str) -> bool:
+    sample = str(text or "")
+    if not sample:
+        return False
+    if "�" in sample or "Ð" in sample or "Ñ" in sample or "Â" in sample:
+        return True
+    non_ascii = sum(1 for ch in sample if ord(ch) > 127)
+    return len(sample) > 24 and non_ascii / max(1, len(sample)) > 0.55
 
 
 def _compact(text: str) -> str:

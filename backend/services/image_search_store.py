@@ -84,6 +84,7 @@ def _candidate_payload(item: dict[str, Any], rank: int, search_id: str) -> dict[
         "score": item.get("score", max(0.1, round(1.0 - (rank - 1) * 0.08, 3))),
         "rank_reason": item.get("rank_reason") or "title/source appears connector-related",
         "part_match": item.get("part_match") or {},
+        "match_evidence": item.get("match_evidence") or {},
         "provider": item.get("provider") or "",
         "provider_raw": item.get("provider_raw") or {},
         "image_probe_ok": item.get("image_probe_ok"),

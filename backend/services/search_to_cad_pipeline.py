@@ -109,6 +109,7 @@ def generate_cad_from_search(
     img_path = output_dir / "reference_selected.png"
     search_pack: dict[str, Any] = {}
     selected_part_match: dict[str, Any] = {}
+    selected_match_evidence: dict[str, Any] = {}
 
     if selected_image_url:
         search_pack = search_pack_override or {
@@ -139,6 +140,7 @@ def generate_cad_from_search(
             "rank": 1,
         }
         selected_part_match = selected.get("part_match") or {}
+        selected_match_evidence = selected.get("match_evidence") or {}
         rank_summary = {
             "selected": selected,
             "candidates": [selected],
@@ -186,6 +188,7 @@ def generate_cad_from_search(
         rank_summary = ranked
         selected = sel
         selected_part_match = selected.get("part_match") or {}
+        selected_match_evidence = selected.get("match_evidence") or {}
 
     feats = extract_image_features(img_path)
     (output_dir / "image_features.json").write_text(
@@ -207,6 +210,10 @@ def generate_cad_from_search(
     (output_dir / "visual_recipe.json").write_text(json.dumps(recipe, ensure_ascii=False, indent=2), encoding="utf-8")
 
     np = _apply_recipe_dimensions(base_params, recipe)
+    selected_evidence_level = str(selected_match_evidence.get("evidence_level") or "unknown")
+    evidence_warning = ""
+    if selected_evidence_level == "low":
+        evidence_warning = " Selected image has low part-number evidence. Verify visually before using."
     np = np.model_copy(
         update={
             "title": (query or "")[:80] or np.title,
@@ -231,6 +238,8 @@ def generate_cad_from_search(
                 "status": search_pack.get("status"),
                 "selected": selected,
                 "selected_part_match": selected_part_match,
+                "selected_match_evidence": selected_match_evidence,
+                "selected_evidence_level": selected_evidence_level,
                 "part_mismatch_risk_accepted": bool(part_mismatch_risk_accepted),
                 "manual_image_url_unverified": bool(search_pack.get("manual_image_url_unverified")),
                 "reference_image_file": img_path.name,
@@ -254,7 +263,7 @@ def generate_cad_from_search(
                 "selection_reason": "Image search + visual grammar (not part-number template library).",
             },
             "disclaimer": _disclaimer_visual_search(),
-            "warning": PROVISIONAL_WARNING + " " + _disclaimer_visual_search(),
+            "warning": PROVISIONAL_WARNING + " " + _disclaimer_visual_search() + evidence_warning,
             "source_url": str((rank_summary.get("selected") or {}).get("source_url") or selected_image_url or ""),
             "ai_extraction": _ai_skipped(),
             "notes": "Dimensions derived from visual proxy assumptions — confirm before manufacturing.",

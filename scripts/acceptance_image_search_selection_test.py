@@ -44,6 +44,7 @@ def print_candidate_quality(results: list[dict]) -> None:
     top_level = ""
     for index, candidate in enumerate(results, 1):
         part_match = candidate.get("part_match") or {}
+        evidence = candidate.get("match_evidence") or {}
         level = part_match.get("match_level")
         matched = part_match.get("matched_part_number") or ""
         rank_reason = candidate.get("rank_reason") or ""
@@ -53,6 +54,10 @@ def print_candidate_quality(results: list[dict]) -> None:
             exact_exists = True
         require(bool(part_match), f"candidate {index} missing part_match")
         require(bool(level), f"candidate {index} missing part_match.match_level")
+        require(bool(evidence), f"candidate {index} missing match_evidence")
+        require(isinstance(evidence.get("evidence_score"), (int, float)), f"candidate {index} missing numeric evidence_score")
+        if level == "exact":
+            require(bool(evidence.get("evidence_level")), f"exact candidate {index} missing evidence_level")
         if level == "near_miss":
             require(bool(part_match.get("reason")), f"near_miss candidate {index} missing reason")
             print(f"WARNING: candidate {index} is near_miss for {matched or 'unknown part'}")
@@ -61,6 +66,13 @@ def print_candidate_quality(results: list[dict]) -> None:
         print(f"candidate_{index}_score:", candidate.get("score"))
         print(f"candidate_{index}_match_level:", level)
         print(f"candidate_{index}_matched_part_number:", matched)
+        print(f"candidate_{index}_evidence_level:", evidence.get("evidence_level"))
+        print(f"candidate_{index}_evidence_score:", evidence.get("evidence_score"))
+        print(f"candidate_{index}_title_has_exact:", evidence.get("title_has_exact"))
+        print(f"candidate_{index}_source_url_has_exact:", evidence.get("source_url_has_exact"))
+        print(f"candidate_{index}_image_url_has_exact:", evidence.get("image_url_has_exact"))
+        print(f"candidate_{index}_domain_trusted:", evidence.get("domain_trusted"))
+        print(f"candidate_{index}_evidence_warnings:", evidence.get("warnings") or [])
         print(f"candidate_{index}_rank_reason:", rank_reason)
     if top_level == "near_miss":
         print("WARNING: top candidate is near_miss; user review is required.")
@@ -178,6 +190,7 @@ def run_current_provider_part_risk(client: httpx.Client) -> dict:
     image_search = params.get("image_search") or {}
     require(params.get("model_origin") == "image_search_approximated", "current-provider job did not use image_search_approximated")
     require(bool(image_search.get("selected_part_match")), "params.json missing image_search.selected_part_match")
+    require(bool(image_search.get("selected_match_evidence")), "params.json missing image_search.selected_match_evidence")
     if selected_level == "near_miss":
         require(image_search.get("part_mismatch_risk_accepted") is True, "near_miss acceptance was not recorded")
     print("job_id:", job.get("job_id"))

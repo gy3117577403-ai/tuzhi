@@ -98,6 +98,8 @@ def generate_cad_from_search(
     selected_image: dict[str, Any] | None = None,
     search_pack_override: dict[str, Any] | None = None,
     part_mismatch_risk_accepted: bool = False,
+    generation_risk_accepted: bool = False,
+    accepted_risk_code: str = "",
 ) -> tuple[ConnectorCadParams | None, dict[str, Any]]:
     """
     Full pipeline: search → rank → download → features → recipe-ready params.
@@ -110,6 +112,7 @@ def generate_cad_from_search(
     search_pack: dict[str, Any] = {}
     selected_part_match: dict[str, Any] = {}
     selected_match_evidence: dict[str, Any] = {}
+    selected_generation_risk: dict[str, Any] = {}
 
     if selected_image_url:
         search_pack = search_pack_override or {
@@ -141,6 +144,7 @@ def generate_cad_from_search(
         }
         selected_part_match = selected.get("part_match") or {}
         selected_match_evidence = selected.get("match_evidence") or {}
+        selected_generation_risk = selected.get("generation_risk") or {}
         rank_summary = {
             "selected": selected,
             "candidates": [selected],
@@ -189,6 +193,7 @@ def generate_cad_from_search(
         selected = sel
         selected_part_match = selected.get("part_match") or {}
         selected_match_evidence = selected.get("match_evidence") or {}
+        selected_generation_risk = selected.get("generation_risk") or {}
 
     feats = extract_image_features(img_path)
     (output_dir / "image_features.json").write_text(
@@ -240,6 +245,9 @@ def generate_cad_from_search(
                 "selected_part_match": selected_part_match,
                 "selected_match_evidence": selected_match_evidence,
                 "selected_evidence_level": selected_evidence_level,
+                "generation_risk": selected_generation_risk,
+                "generation_risk_accepted": bool(generation_risk_accepted),
+                "accepted_risk_code": accepted_risk_code,
                 "part_mismatch_risk_accepted": bool(part_mismatch_risk_accepted),
                 "manual_image_url_unverified": bool(search_pack.get("manual_image_url_unverified")),
                 "reference_image_file": img_path.name,

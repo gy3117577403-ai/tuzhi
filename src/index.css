@@ -662,6 +662,31 @@ a {
   color: #9a2d2d;
 }
 
+.generation-risk {
+  display: grid;
+  gap: 4px;
+  padding: 7px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.035);
+}
+
+.generation-risk.confirm {
+  border: 1px solid rgba(154, 45, 45, 0.2);
+  background: rgba(255, 235, 235, 0.95);
+  color: #9a2d2d;
+  font-weight: 800;
+}
+
+.generation-risk.notice {
+  border: 1px solid rgba(138, 91, 0, 0.18);
+  background: rgba(255, 248, 230, 0.95);
+  color: #765000;
+}
+
+.generation-risk p {
+  margin: 0;
+}
+
 .part-match-reason.danger {
   color: #9a2d2d;
   font-weight: 800;

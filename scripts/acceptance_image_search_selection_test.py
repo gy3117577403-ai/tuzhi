@@ -45,6 +45,7 @@ def print_candidate_quality(results: list[dict]) -> None:
     for index, candidate in enumerate(results, 1):
         part_match = candidate.get("part_match") or {}
         evidence = candidate.get("match_evidence") or {}
+        generation_risk = candidate.get("generation_risk") or {}
         level = part_match.get("match_level")
         matched = part_match.get("matched_part_number") or ""
         rank_reason = candidate.get("rank_reason") or ""
@@ -55,6 +56,7 @@ def print_candidate_quality(results: list[dict]) -> None:
         require(bool(part_match), f"candidate {index} missing part_match")
         require(bool(level), f"candidate {index} missing part_match.match_level")
         require(bool(evidence), f"candidate {index} missing match_evidence")
+        require(bool(generation_risk), f"candidate {index} missing generation_risk")
         require(isinstance(evidence.get("evidence_score"), (int, float)), f"candidate {index} missing numeric evidence_score")
         if level == "exact":
             require(bool(evidence.get("evidence_level")), f"exact candidate {index} missing evidence_level")
@@ -73,6 +75,7 @@ def print_candidate_quality(results: list[dict]) -> None:
         print(f"candidate_{index}_image_url_has_exact:", evidence.get("image_url_has_exact"))
         print(f"candidate_{index}_domain_trusted:", evidence.get("domain_trusted"))
         print(f"candidate_{index}_evidence_warnings:", evidence.get("warnings") or [])
+        print(f"candidate_{index}_generation_risk:", generation_risk)
         print(f"candidate_{index}_rank_reason:", rank_reason)
     if top_level == "near_miss":
         print("WARNING: top candidate is near_miss; user review is required.")
@@ -158,21 +161,42 @@ def run_current_provider_part_risk(client: httpx.Client) -> dict:
 
     print_candidate_quality(results)
     exact = next((item for item in results if (item.get("part_match") or {}).get("match_level") == "exact"), None)
+    low_evidence_exact = next(
+        (
+            item
+            for item in results
+            if (item.get("part_match") or {}).get("match_level") == "exact"
+            and (item.get("match_evidence") or {}).get("evidence_level") == "low"
+        ),
+        None,
+    )
     near_candidate = next((item for item in results if (item.get("part_match") or {}).get("match_level") == "near_miss"), None)
-    selected = exact or results[0]
+    risk_candidate = low_evidence_exact or near_candidate or next(
+        (item for item in results if (item.get("generation_risk") or {}).get("requires_confirmation")),
+        None,
+    )
+    selected = risk_candidate or exact or results[0]
     selected_level = (selected.get("part_match") or {}).get("match_level")
+    selected_risk = selected.get("generation_risk") or {}
     print("selected_match_level:", selected_level)
+    print("selected_risk_code:", selected_risk.get("confirmation_code"))
 
-    if near_candidate:
+    if risk_candidate:
         blocked = client.post(
             f"{BASE}/api/connector-cad/jobs/from-selected-image",
-            json={"search_id": search_data["search_id"], "candidate_id": near_candidate["id"], "query": "1-968970-1 connector"},
+            json={"search_id": search_data["search_id"], "candidate_id": risk_candidate["id"], "query": "1-968970-1 connector"},
         )
-        require(blocked.status_code in {400, 409}, f"near_miss was not blocked, status={blocked.status_code}")
+        require(blocked.status_code in {400, 409}, f"risk candidate was not blocked, status={blocked.status_code}")
         blocked_data = blocked.json()
         detail = blocked_data.get("detail") or {}
-        require(detail.get("status") == "requires_confirmation", "near_miss block did not require confirmation")
-        print("near_miss_blocked:", True)
+        require(detail.get("status") == "requires_confirmation", "risk block did not require confirmation")
+        print("risk_candidate_blocked:", True)
+        if low_evidence_exact:
+            require((low_evidence_exact.get("generation_risk") or {}).get("requires_confirmation") is True, "low evidence exact did not require confirmation")
+            print("low_evidence_exact_requires_confirmation:", True)
+        if near_candidate:
+            require((near_candidate.get("generation_risk") or {}).get("requires_confirmation") is True, "near_miss did not require confirmation")
+            print("near_miss_requires_confirmation:", True)
 
     job_response = client.post(
         f"{BASE}/api/connector-cad/jobs/from-selected-image",
@@ -180,7 +204,9 @@ def run_current_provider_part_risk(client: httpx.Client) -> dict:
             "search_id": search_data["search_id"],
             "candidate_id": selected["id"],
             "query": "1-968970-1 connector",
-            "accept_part_mismatch_risk": selected_level == "near_miss",
+            "accept_generation_risk": bool(selected_risk.get("requires_confirmation")),
+            "accepted_risk_code": selected_risk.get("confirmation_code") or "",
+            "accept_part_mismatch_risk": selected_risk.get("confirmation_code") == "near_miss_part_number",
         },
     )
     job_response.raise_for_status()
@@ -191,11 +217,14 @@ def run_current_provider_part_risk(client: httpx.Client) -> dict:
     require(params.get("model_origin") == "image_search_approximated", "current-provider job did not use image_search_approximated")
     require(bool(image_search.get("selected_part_match")), "params.json missing image_search.selected_part_match")
     require(bool(image_search.get("selected_match_evidence")), "params.json missing image_search.selected_match_evidence")
-    if selected_level == "near_miss":
-        require(image_search.get("part_mismatch_risk_accepted") is True, "near_miss acceptance was not recorded")
+    require(bool(image_search.get("generation_risk")), "params.json missing image_search.generation_risk")
+    if selected_risk.get("requires_confirmation"):
+        require(image_search.get("generation_risk_accepted") is True, "risk acceptance was not recorded")
+        require(bool(image_search.get("accepted_risk_code")), "accepted_risk_code was not recorded")
     print("job_id:", job.get("job_id"))
     print("model_origin:", params.get("model_origin"))
-    print("part_mismatch_risk_accepted:", image_search.get("part_mismatch_risk_accepted"))
+    print("generation_risk_accepted:", image_search.get("generation_risk_accepted"))
+    print("accepted_risk_code:", image_search.get("accepted_risk_code"))
     return {"search": search_data, "job": job, "params": params}
 
 

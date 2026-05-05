@@ -73,6 +73,13 @@ export type ConnectorImageSearchCandidate = {
     reasons?: string[];
     warnings?: string[];
   };
+  generation_risk?: {
+    requires_confirmation?: boolean;
+    risk_level?: 'none' | 'notice' | 'confirm' | 'required_block' | string;
+    risk_reasons?: string[];
+    confirmation_code?: string;
+    recommended_action?: string;
+  };
 };
 
 export type ConnectorImageSearch = {
@@ -158,6 +165,8 @@ export async function createJobFromSelectedImage(
   candidateId: string,
   query?: string,
   acceptPartMismatchRisk = false,
+  acceptGenerationRisk = false,
+  acceptedRiskCode = '',
 ): Promise<ConnectorJob> {
   const response = await fetch(`${API_BASE}/api/connector-cad/jobs/from-selected-image`, {
     method: 'POST',
@@ -167,6 +176,8 @@ export async function createJobFromSelectedImage(
       candidate_id: candidateId,
       query,
       accept_part_mismatch_risk: acceptPartMismatchRisk,
+      accept_generation_risk: acceptGenerationRisk,
+      accepted_risk_code: acceptedRiskCode,
     }),
   });
   return parseResponse(response);

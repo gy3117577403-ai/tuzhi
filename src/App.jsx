@@ -192,17 +192,26 @@ export default function App() {
 
   const handleCreateFromCandidate = async (candidate) => {
     if (!imageSearch?.search_id || !candidate?.id || isBusy) return;
-    const matchLevel = candidate.part_match?.match_level || 'none';
-    const acceptRisk = matchLevel === 'near_miss';
-    if (acceptRisk) {
-      const confirmed = window.confirm('该候选图可能属于相近料号，不一定是当前输入型号，生成结果仅供外观参考。确认继续？');
+    const generationRisk = candidate.generation_risk || {};
+    const requiresConfirmation = Boolean(generationRisk.requires_confirmation);
+    const acceptedRiskCode = generationRisk.confirmation_code || '';
+    const acceptPartMismatchRisk = acceptedRiskCode === 'near_miss_part_number';
+    if (requiresConfirmation) {
+      const confirmed = window.confirm(`${riskPromptText(acceptedRiskCode)}\n\n${generationRisk.recommended_action || '请人工核对后再生成。'}\n\n确认继续？`);
       if (!confirmed) return;
     }
     setError('');
     setSelectedCandidateId(candidate.id);
     setStatus('generating');
     try {
-      const created = await createJobFromSelectedImage(imageSearch.search_id, candidate.id, inputText.trim(), acceptRisk);
+      const created = await createJobFromSelectedImage(
+        imageSearch.search_id,
+        candidate.id,
+        inputText.trim(),
+        acceptPartMismatchRisk,
+        requiresConfirmation,
+        acceptedRiskCode,
+      );
       await finishCreatedJob(created);
     } catch (err) {
       setStatus('failed');
@@ -521,8 +530,10 @@ function ImageSearchPanel({
   const renderCandidate = (candidate) => {
     const partMatch = candidate.part_match || {};
     const evidence = candidate.match_evidence || {};
+    const generationRisk = candidate.generation_risk || {};
     const matchLevel = partMatch.match_level || 'none';
     const evidenceLevel = evidence.evidence_level || 'unknown';
+    const requiresConfirmation = Boolean(generationRisk.requires_confirmation);
     const isNearMiss = matchLevel === 'near_miss';
     const exactLowEvidence = matchLevel === 'exact' && evidenceLevel === 'low';
     return (
@@ -562,6 +573,14 @@ function ImageSearchPanel({
           {Array.isArray(evidence.warnings) && evidence.warnings.length ? (
             <div className={`evidence-warning ${evidenceLevel === 'low' ? 'danger' : ''}`}>{evidence.warnings.join('；')}</div>
           ) : null}
+          <div className={`generation-risk ${requiresConfirmation ? 'confirm' : generationRisk.risk_level === 'notice' ? 'notice' : ''}`}>
+            <span>risk_level: {generationRisk.risk_level || 'none'}</span>
+            <span>confirmation_code: {generationRisk.confirmation_code || 'none'}</span>
+            {Array.isArray(generationRisk.risk_reasons) && generationRisk.risk_reasons.length ? (
+              <p>{generationRisk.risk_reasons.join('；')}</p>
+            ) : null}
+            {generationRisk.recommended_action ? <p>{generationRisk.recommended_action}</p> : null}
+          </div>
           <p>{candidate.rank_reason || 'Connector-like visual candidate'}</p>
           {candidate.source_url ? (
             <a href={candidate.source_url} target="_blank" rel="noreferrer">source_url</a>
@@ -577,13 +596,16 @@ function ImageSearchPanel({
             完整料号命中，但图片证据较弱，请人工核对。
           </div>
         ) : null}
+        {generationRisk.confirmation_code === 'no_part_number_match' ? (
+          <div className="candidate-near-alert">图片未匹配当前料号，请谨慎使用。</div>
+        ) : null}
         <button
-          className={`candidate-select ${isNearMiss ? 'danger' : ''}`}
+          className={`candidate-select ${requiresConfirmation ? 'danger' : ''}`}
           onClick={() => onSelect(candidate)}
           disabled={Boolean(selectedCandidateId)}
         >
           {selectedCandidateId === candidate.id ? <Loader2 className="spin" size={14} /> : <Camera size={14} />}
-          <span>{isNearMiss ? '我确认风险，仍用此图生成' : '选择此图生成 CAD'}</span>
+          <span>{requiresConfirmation ? '确认风险并生成 CAD' : '选择此图生成 CAD'}</span>
         </button>
       </article>
     );
@@ -712,6 +734,17 @@ function formatBool(value) {
   if (value === true) return 'yes';
   if (value === false) return 'no';
   return 'unknown';
+}
+
+function riskPromptText(code) {
+  const prompts = {
+    low_evidence_exact: '完整料号命中，但图片证据较弱，需人工核对。',
+    unknown_evidence_exact: '完整料号命中，但图片证据未知，需人工核对。',
+    low_evidence_weak: '弱料号匹配且证据较弱，可能不是当前型号。',
+    near_miss_part_number: '相近料号风险，可能不是当前型号。',
+    no_part_number_match: '图片未匹配当前料号，请谨慎使用。',
+  };
+  return prompts[code] || '该候选图需要确认风险后才能生成。';
 }
 
 function StatusBadge({ status }) {
@@ -915,6 +948,21 @@ function ImageSearchSourcePanel({ job }) {
         <AuditRow label="selection_mode" value={search.provider === 'manual_url' ? 'manual_url' : 'selected_candidate'} />
         <AuditRow label="provider" value={imageSearch.provider || search.provider || '未记录'} />
         <AuditRow label="status" value={imageSearch.status || search.status || '未记录'} />
+        <AuditRow label="generation_risk_accepted" value={String(Boolean(imageSearch.generation_risk_accepted))} />
+        <AuditRow label="accepted_risk_code" value={imageSearch.accepted_risk_code || '未记录'} />
+        <AuditRow label="selected_evidence_level" value={imageSearch.selected_evidence_level || '未记录'} />
+        {imageSearch.generation_risk_accepted ? (
+          <div className="candidate-near-alert">该模型基于带风险的候选图生成，已由用户确认风险。</div>
+        ) : null}
+        {imageSearch.selected_evidence_level === 'low' ? (
+          <div className="candidate-near-alert">候选图证据较弱，请人工核对图片是否对应目标料号。</div>
+        ) : null}
+        <div className="section-label subtle">selected_part_match</div>
+        <pre className="ai-json-preview">{JSON.stringify(imageSearch.selected_part_match || {}, null, 2)}</pre>
+        <div className="section-label subtle">selected_match_evidence</div>
+        <pre className="ai-json-preview">{JSON.stringify(imageSearch.selected_match_evidence || {}, null, 2)}</pre>
+        <div className="section-label subtle">generation_risk</div>
+        <pre className="ai-json-preview">{JSON.stringify(imageSearch.generation_risk || {}, null, 2)}</pre>
         <div className="section-label subtle">visual_recipe 摘要</div>
         <pre className="ai-json-preview">{JSON.stringify(recipeSummary, null, 2)}</pre>
       </div>

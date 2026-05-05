@@ -53,6 +53,7 @@ from services.search_to_cad_pipeline import (
     generate_cad_from_search,
     merge_image_search_fallback_notice,
 )
+from services.search_result_ranker import assess_candidate_generation_risk
 from services.source_audit import create_source_manifest, augment_params_json, summarize_manifest
 from services.registry_history import get_registry_item_history, verify_registry_history_signatures
 from services.registry_search import get_registry_stats, search_registry_items
@@ -85,6 +86,8 @@ class SelectedImageJobRequest(BaseModel):
     candidate_id: str
     query: str | None = None
     accept_part_mismatch_risk: bool = False
+    accept_generation_risk: bool = False
+    accepted_risk_code: str | None = None
 
 
 class ManualImageUrlJobRequest(BaseModel):
@@ -290,14 +293,20 @@ def get_connector_image_search(search_id: str) -> dict[str, Any]:
 def create_job_from_selected_image(payload: SelectedImageJobRequest) -> dict[str, Any]:
     record, candidate = resolve_candidate(payload.search_id, payload.candidate_id)
     part_match = candidate.get("part_match") or {}
-    if part_match.get("match_level") == "near_miss" and not payload.accept_part_mismatch_risk:
+    match_evidence = candidate.get("match_evidence") or {}
+    generation_risk = candidate.get("generation_risk") or assess_candidate_generation_risk(candidate)
+    candidate["generation_risk"] = generation_risk
+    risk_accepted = bool(payload.accept_generation_risk or payload.accept_part_mismatch_risk)
+    if generation_risk.get("requires_confirmation") and not risk_accepted:
         raise HTTPException(
             status_code=409,
             detail={
                 "status": "requires_confirmation",
-                "error": "Selected image appears to match a similar but different part number.",
+                "error": "Selected image requires confirmation before CAD generation.",
+                "generation_risk": generation_risk,
                 "part_match": part_match,
-                "message": "Set accept_part_mismatch_risk=true to continue.",
+                "match_evidence": match_evidence,
+                "message": "Set accept_generation_risk=true to continue.",
             },
         )
     query = (payload.query or record.get("query") or candidate.get("title") or "").strip()
@@ -307,6 +316,8 @@ def create_job_from_selected_image(payload: SelectedImageJobRequest) -> dict[str
         selected_image=candidate,
         search_pack=record,
         part_mismatch_risk_accepted=bool(payload.accept_part_mismatch_risk),
+        generation_risk_accepted=risk_accepted,
+        accepted_risk_code=payload.accepted_risk_code or generation_risk.get("confirmation_code") or "",
     )
 
 
@@ -399,6 +410,8 @@ def create_visual_search_job(
     selected_image: dict[str, Any],
     search_pack: dict[str, Any],
     part_mismatch_risk_accepted: bool = False,
+    generation_risk_accepted: bool = False,
+    accepted_risk_code: str = "",
 ) -> dict[str, Any]:
     if not selected_image_url:
         raise HTTPException(status_code=400, detail="selected image URL is empty")
@@ -415,6 +428,8 @@ def create_visual_search_job(
         selected_image=selected_image,
         search_pack_override=search_pack,
         part_mismatch_risk_accepted=part_mismatch_risk_accepted,
+        generation_risk_accepted=generation_risk_accepted,
+        accepted_risk_code=accepted_risk_code,
     )
     if tried is not None:
         params = tried

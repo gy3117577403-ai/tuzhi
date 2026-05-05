@@ -85,6 +85,7 @@ def _candidate_payload(item: dict[str, Any], rank: int, search_id: str) -> dict[
         "rank_reason": item.get("rank_reason") or "title/source appears connector-related",
         "part_match": item.get("part_match") or {},
         "match_evidence": item.get("match_evidence") or {},
+        "generation_risk": item.get("generation_risk") or {},
         "provider": item.get("provider") or "",
         "provider_raw": item.get("provider_raw") or {},
         "image_probe_ok": item.get("image_probe_ok"),

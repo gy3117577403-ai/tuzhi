@@ -82,6 +82,7 @@ def rank_connector_image_results(
                 reasons.append(probe_reason or "image url unavailable")
         evidence = build_match_evidence(part_match.get("query_part_number") or query, row, part_match)
         row["match_evidence"] = evidence
+        row["generation_risk"] = assess_candidate_generation_risk(row)
         evidence_score = float(evidence.get("evidence_score") or 0)
         evidence_level = evidence.get("evidence_level")
         if part_match.get("match_level") == "exact":
@@ -374,6 +375,55 @@ def build_match_evidence(query_part: str, item: dict[str, Any], part_match: dict
         "download_probe_ok": download_probe_ok,
         "reasons": reasons,
         "warnings": warnings,
+    }
+
+
+def assess_candidate_generation_risk(candidate: dict[str, Any]) -> dict[str, Any]:
+    part_match = candidate.get("part_match") or {}
+    evidence = candidate.get("match_evidence") or {}
+    match_level = str(part_match.get("match_level") or "none")
+    evidence_level = str(evidence.get("evidence_level") or "unknown")
+    reasons: list[str] = []
+    code = ""
+    risk_level = "none"
+    requires_confirmation = False
+
+    if match_level == "near_miss":
+        requires_confirmation = True
+        risk_level = "confirm"
+        code = "near_miss_part_number"
+        reasons.append("candidate appears to match a similar but different part number")
+    elif match_level == "exact" and evidence_level == "low":
+        requires_confirmation = True
+        risk_level = "confirm"
+        code = "low_evidence_exact"
+        reasons.append("exact part number match but low evidence")
+    elif match_level == "exact" and evidence_level == "unknown":
+        requires_confirmation = True
+        risk_level = "confirm"
+        code = "unknown_evidence_exact"
+        reasons.append("exact part number match but evidence is unknown")
+    elif match_level == "weak" and evidence_level in {"low", "unknown"}:
+        requires_confirmation = True
+        risk_level = "confirm"
+        code = "low_evidence_weak"
+        reasons.append("weak part number match with low or unknown evidence")
+    elif match_level == "none":
+        requires_confirmation = True
+        risk_level = "confirm"
+        code = "no_part_number_match"
+        reasons.append("candidate does not match the requested part number")
+    elif match_level == "weak":
+        risk_level = "notice"
+        code = "weak_part_number_match"
+        reasons.append("weak part number match; verify image visually")
+
+    return {
+        "requires_confirmation": requires_confirmation,
+        "risk_level": risk_level,
+        "risk_reasons": reasons,
+        "confirmation_code": code,
+        "recommended_action": "Verify image visually before generating CAD." if risk_level != "none" else "",
     }
 
 

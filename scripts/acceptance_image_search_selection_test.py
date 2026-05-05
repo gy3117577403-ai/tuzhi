@@ -39,6 +39,35 @@ def check_downloads(client: httpx.Client, files: dict, keys: list[str]) -> bool:
     return all(files.get(key) and head_ok(client, f"{BASE}{files[key]}") for key in keys)
 
 
+def print_candidate_quality(results: list[dict]) -> None:
+    exact_exists = False
+    top_level = ""
+    for index, candidate in enumerate(results, 1):
+        part_match = candidate.get("part_match") or {}
+        level = part_match.get("match_level")
+        matched = part_match.get("matched_part_number") or ""
+        rank_reason = candidate.get("rank_reason") or ""
+        if index == 1:
+            top_level = level or ""
+        if level == "exact":
+            exact_exists = True
+        require(bool(part_match), f"candidate {index} missing part_match")
+        require(bool(level), f"candidate {index} missing part_match.match_level")
+        if level == "near_miss":
+            require(bool(part_match.get("reason")), f"near_miss candidate {index} missing reason")
+            print(f"WARNING: candidate {index} is near_miss for {matched or 'unknown part'}")
+        print(f"candidate_{index}_title:", candidate.get("title") or "")
+        print(f"candidate_{index}_domain:", candidate.get("domain") or "")
+        print(f"candidate_{index}_score:", candidate.get("score"))
+        print(f"candidate_{index}_match_level:", level)
+        print(f"candidate_{index}_matched_part_number:", matched)
+        print(f"candidate_{index}_rank_reason:", rank_reason)
+    if top_level == "near_miss":
+        print("WARNING: top candidate is near_miss; user review is required.")
+    if exact_exists and top_level != "exact":
+        print("WARNING: exact candidate exists but top candidate is not exact.")
+
+
 def run_mock_selection(client: httpx.Client) -> dict:
     print("=== A. mock provider selection ===")
     print("env_provider_mock:", _provider_is_mock())
@@ -56,6 +85,7 @@ def run_mock_selection(client: httpx.Client) -> dict:
     require(len(results) >= 1, "mock search returned no candidates")
     require(results[0].get("score") is not None, "candidate missing score")
     require(bool(results[0].get("rank_reason")), "candidate missing rank_reason")
+    print_candidate_quality(results)
 
     fetched = client.get(f"{BASE}/api/connector-cad/image-search/{search_data['search_id']}")
     fetched.raise_for_status()
@@ -88,6 +118,7 @@ def run_mock_selection(client: httpx.Client) -> dict:
     print("provider:", search_data.get("provider"))
     print("candidates:", len(results))
     print("top_score:", results[0].get("score"))
+    print("top_match_level:", (results[0].get("part_match") or {}).get("match_level"))
     print("top_rank_reason:", results[0].get("rank_reason"))
     print("job_id:", job.get("job_id"))
     print("model_origin:", params.get("model_origin"))

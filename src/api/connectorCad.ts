@@ -52,6 +52,14 @@ export type ConnectorImageSearchCandidate = {
   provider?: string;
   width?: number;
   height?: number;
+  part_match?: {
+    match_level?: 'exact' | 'weak' | 'near_miss' | 'none' | string;
+    query_part_number?: string;
+    matched_part_number?: string;
+    normalized_query?: string;
+    normalized_matched?: string;
+    reason?: string;
+  };
 };
 
 export type ConnectorImageSearch = {

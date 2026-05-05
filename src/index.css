@@ -403,11 +403,24 @@ a {
 .candidate-card {
   min-width: 0;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
+  border-radius: 8px;
   background: #fbfbfb;
   overflow: hidden;
   display: grid;
   grid-template-rows: 148px 1fr auto;
+}
+
+.candidate-card.match-exact {
+  border-color: rgba(31, 107, 58, 0.32);
+}
+
+.candidate-card.match-weak {
+  border-color: rgba(172, 113, 0, 0.3);
+}
+
+.candidate-card.match-near_miss {
+  border-color: rgba(154, 45, 45, 0.34);
+  background: #fffafa;
 }
 
 .candidate-thumb {
@@ -451,14 +464,80 @@ a {
   line-height: 1.35;
 }
 
+.candidate-title-row {
+  display: grid;
+  gap: 6px;
+}
+
+.part-match-badge {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 7px;
+  border-radius: 7px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.part-match-badge.exact {
+  color: #1f6b3a;
+  border-color: rgba(31, 107, 58, 0.22);
+  background: rgba(236, 250, 241, 0.92);
+}
+
+.part-match-badge.weak {
+  color: #765000;
+  border-color: rgba(172, 113, 0, 0.24);
+  background: rgba(255, 248, 230, 0.95);
+}
+
+.part-match-badge.near_miss {
+  color: #9a2d2d;
+  border-color: rgba(154, 45, 45, 0.24);
+  background: rgba(255, 235, 235, 0.95);
+}
+
+.part-match-badge.none {
+  color: #666;
+  border-color: rgba(0, 0, 0, 0.1);
+  background: #f0f0f0;
+}
+
 .candidate-body span {
   color: #777;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 10px;
 }
 
+.candidate-body .part-match-badge {
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.candidate-body .part-match-badge.exact {
+  color: #1f6b3a;
+}
+
+.candidate-body .part-match-badge.weak {
+  color: #765000;
+}
+
+.candidate-body .part-match-badge.near_miss {
+  color: #9a2d2d;
+}
+
+.candidate-body .part-match-badge.none {
+  color: #666;
+}
+
 .candidate-body p {
   margin: 0;
+}
+
+.part-match-reason.danger {
+  color: #9a2d2d;
+  font-weight: 800;
 }
 
 .candidate-body a {
@@ -481,6 +560,22 @@ a {
   cursor: pointer;
   font-size: 12px;
   font-weight: 800;
+}
+
+.candidate-near-alert {
+  margin: 0 10px 8px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(154, 45, 45, 0.2);
+  background: rgba(255, 235, 235, 0.92);
+  color: #9a2d2d;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.candidate-select.danger {
+  background: #9a2d2d;
 }
 
 .candidate-select:disabled {

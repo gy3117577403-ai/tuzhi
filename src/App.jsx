@@ -538,39 +538,54 @@ function ImageSearchPanel({
       ) : null}
       {results.length ? (
         <div className="candidate-grid">
-          {results.map((candidate) => (
-            <article key={candidate.id} className="candidate-card">
-              <div className="candidate-thumb">
-                {failedImages[candidate.id] ? (
-                  <div className="thumb-fallback">缩略图加载失败，但仍可尝试使用原图 URL</div>
-                ) : (
-                  <img
-                    src={candidate.thumbnail_url || candidate.image_url}
-                    alt={candidate.title || 'candidate connector'}
-                    onError={() => setFailedImages((current) => ({ ...current, [candidate.id]: true }))}
-                  />
-                )}
-              </div>
-              <div className="candidate-body">
-                <strong>{candidate.title || 'Untitled candidate'}</strong>
-                <span>{candidate.domain || domainFromUrl(candidate.source_url) || 'unknown source'}</span>
-                <span>provider: {candidate.provider || search.provider || 'unknown'}</span>
-                <span>score: {candidate.score ?? 'n/a'}</span>
-                <p>{candidate.rank_reason || 'Connector-like visual candidate'}</p>
-                {candidate.source_url ? (
-                  <a href={candidate.source_url} target="_blank" rel="noreferrer">source_url</a>
+          {results.map((candidate) => {
+            const partMatch = candidate.part_match || {};
+            const matchLevel = partMatch.match_level || 'none';
+            const isNearMiss = matchLevel === 'near_miss';
+            return (
+              <article key={candidate.id} className={`candidate-card match-${matchLevel}`}>
+                <div className="candidate-thumb">
+                  {failedImages[candidate.id] ? (
+                    <div className="thumb-fallback">缩略图加载失败，但仍可尝试使用原图 URL</div>
+                  ) : (
+                    <img
+                      src={candidate.thumbnail_url || candidate.image_url}
+                      alt={candidate.title || 'candidate connector'}
+                      onError={() => setFailedImages((current) => ({ ...current, [candidate.id]: true }))}
+                    />
+                  )}
+                </div>
+                <div className="candidate-body">
+                  <div className="candidate-title-row">
+                    <strong>{candidate.title || 'Untitled candidate'}</strong>
+                    <PartMatchBadge level={matchLevel} />
+                  </div>
+                  <span>{candidate.domain || domainFromUrl(candidate.source_url) || 'unknown source'}</span>
+                  <span>provider: {candidate.provider || search.provider || 'unknown'}</span>
+                  <span>score: {candidate.score ?? 'n/a'}</span>
+                  {partMatch.matched_part_number ? <span>matched_part_number: {partMatch.matched_part_number}</span> : null}
+                  {partMatch.reason ? <p className={`part-match-reason ${isNearMiss ? 'danger' : ''}`}>{partMatch.reason}</p> : null}
+                  <p>{candidate.rank_reason || 'Connector-like visual candidate'}</p>
+                  {candidate.source_url ? (
+                    <a href={candidate.source_url} target="_blank" rel="noreferrer">source_url</a>
+                  ) : null}
+                </div>
+                {isNearMiss ? (
+                  <div className="candidate-near-alert">
+                    该候选图可能属于相近料号，不一定是当前输入型号，生成结果仅供外观参考。
+                  </div>
                 ) : null}
-              </div>
-              <button
-                className="candidate-select"
-                onClick={() => onSelect(candidate)}
-                disabled={Boolean(selectedCandidateId)}
-              >
-                {selectedCandidateId === candidate.id ? <Loader2 className="spin" size={14} /> : <Camera size={14} />}
-                <span>选择此图生成 CAD</span>
-              </button>
-            </article>
-          ))}
+                <button
+                  className={`candidate-select ${isNearMiss ? 'danger' : ''}`}
+                  onClick={() => onSelect(candidate)}
+                  disabled={Boolean(selectedCandidateId)}
+                >
+                  {selectedCandidateId === candidate.id ? <Loader2 className="spin" size={14} /> : <Camera size={14} />}
+                  <span>选择此图生成 CAD</span>
+                </button>
+              </article>
+            );
+          })}
         </div>
       ) : !notConfigured ? (
         <div className="empty-panel">没有返回候选图片，可稍后重试或检查图片搜索配置。</div>
@@ -612,6 +627,17 @@ function ManualImageUrlForm({
       </button>
     </div>
   );
+}
+
+function PartMatchBadge({ level }) {
+  const labels = {
+    exact: '完整料号匹配',
+    weak: '弱匹配',
+    near_miss: '相近料号风险',
+    none: '未匹配料号',
+  };
+  const normalized = labels[level] ? level : 'none';
+  return <span className={`part-match-badge ${normalized}`}>{labels[normalized]}</span>;
 }
 
 function StatusBadge({ status }) {

@@ -6,7 +6,7 @@ from services.cad_generator import generate_connector_cad
 from services.connector_params import ConnectorCadParams
 
 
-def export_job_files(params: ConnectorCadParams, output_dir: Path) -> dict[str, Path]:
+def export_job_files(params: ConnectorCadParams, output_dir: Path) -> tuple[dict[str, Path], ConnectorCadParams]:
     origin = params.model_origin
     if origin in ("image_search_approximated", "image_upload_approximated"):
         from services.visual_cad_generator import export_visual_proxy_job
@@ -23,5 +23,7 @@ def export_job_files(params: ConnectorCadParams, output_dir: Path) -> dict[str, 
                     "template_name": params.template_name or "GENERIC_RECTANGULAR_CONNECTOR",
                 }
             )
-        return export_appearance_job(p, output_dir)
-    return generate_connector_cad(params, output_dir)
+        files = export_appearance_job(p, output_dir)
+        return files, params
+    files = generate_connector_cad(params, output_dir)
+    return files, params

@@ -136,29 +136,60 @@ def _minimal_dxf_stub() -> str:
     return "\n".join(["0", "SECTION", "2", "ENTITIES", "0", "ENDSEC", "0", "EOF", ""])
 
 
-def export_visual_proxy_job(params: ConnectorCadParams, output_dir: str | Path) -> dict[str, Path]:
-    """Export appearance files + params.json for visual-grammar jobs."""
+def export_visual_proxy_job(params: ConnectorCadParams, output_dir: str | Path) -> tuple[dict[str, Path], ConnectorCadParams]:
+    """Export appearance files + params.json for visual-grammar jobs; attach flat 2D CAD when possible."""
     recipe = getattr(params, "visual_recipe", None) or {}
     if not recipe:
         raise ValueError("visual_recipe missing on params for visual proxy export")
 
-    files = generate_visual_proxy_cad(recipe, output_dir)
-    normalized = normalize_cad_params(params)
-    normalized["visual_recipe"] = recipe
-    normalized["geometry_basis"] = params.geometry_basis or "visual_shape_grammar"
-    normalized["manufacturing_accuracy"] = params.manufacturing_accuracy or "visual_proxy_only"
-    normalized["model_origin"] = params.model_origin
-    normalized["preview_style"] = params.preview_style or {"base_color": recipe.get("color", "grey")}
-    normalized["appearance_pipeline"] = params.appearance_pipeline
-    normalized["image_feature_summary"] = params.image_feature_summary
-    normalized["vision_report_summary"] = params.vision_report_summary
-    normalized["uploaded_file_name"] = params.uploaded_file_name
-    normalized["image_search_context"] = params.image_search_context
-    normalized["image_search"] = params.image_search
-    normalized["disclaimer"] = VISUAL_PROXY_DISCLAIMER
-    normalized["warning"] = params.warning or PROVISIONAL_WARNING
+    out = Path(output_dir)
+    files = generate_visual_proxy_cad(recipe, out)
 
-    params_path = Path(output_dir) / "params.json"
-    write_params_json(params, normalized, params_path)
+    params_out = params
+    try:
+        from services.flat_view_exporter import generate_flat_view_package
+
+        flat_pack = generate_flat_view_package(
+            recipe,
+            params.image_feature_summary or {},
+            params.vision_report_summary or {},
+            out,
+            str(params.model_origin),
+            None,
+        )
+        params_out = params.model_copy(update={"flat_cad": flat_pack["flat_cad"]})
+        for key, p in flat_pack.get("paths", {}).items():
+            if isinstance(p, Path):
+                files[key] = p
+    except Exception:
+        params_out = params.model_copy(
+            update={
+                "flat_cad": {
+                    "enabled": True,
+                    "status": "failed",
+                    "error": "flat_cad_bundle_failed",
+                    "warnings": ["Flat CAD bundle failed during export; see server logs."],
+                }
+            }
+        )
+
+    normalized = normalize_cad_params(params_out)
+    normalized["visual_recipe"] = recipe
+    normalized["geometry_basis"] = params_out.geometry_basis or "visual_shape_grammar"
+    normalized["manufacturing_accuracy"] = params_out.manufacturing_accuracy or "visual_proxy_only"
+    normalized["model_origin"] = params_out.model_origin
+    normalized["preview_style"] = params_out.preview_style or {"base_color": recipe.get("color", "grey")}
+    normalized["appearance_pipeline"] = params_out.appearance_pipeline
+    normalized["image_feature_summary"] = params_out.image_feature_summary
+    normalized["vision_report_summary"] = params_out.vision_report_summary
+    normalized["uploaded_file_name"] = params_out.uploaded_file_name
+    normalized["image_search_context"] = params_out.image_search_context
+    normalized["image_search"] = params_out.image_search
+    normalized["disclaimer"] = VISUAL_PROXY_DISCLAIMER
+    normalized["warning"] = params_out.warning or PROVISIONAL_WARNING
+    normalized["flat_cad"] = params_out.flat_cad
+
+    params_path = out / "params.json"
+    write_params_json(params_out, normalized, params_path)
     files["params.json"] = params_path
-    return files
+    return files, params_out

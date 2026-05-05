@@ -31,6 +31,16 @@ export type ConnectorJob = {
     image_search_results?: string;
     selected_image?: string;
     visual_recipe?: string;
+    flat_front_dxf?: string;
+    flat_rear_dxf?: string;
+    flat_top_dxf?: string;
+    flat_side_dxf?: string;
+    flat_insertion_dxf?: string;
+    flat_views_svg?: string;
+    flat_recipe_json?: string;
+    flat_view_classification_json?: string;
+    flat_terminal_insertion_json?: string;
+    flat_structure_report_json?: string;
   };
   source_manifest_url?: string;
   source_domain?: Record<string, any>;

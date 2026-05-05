@@ -1,4 +1,8 @@
-"""Orchestrate image search → rank → download → vision features → visual CAD."""
+"""Orchestrate image search → rank → download → vision features → visual CAD.
+
+2D flat schematic views (DXF/SVG/JSON) for image-derived jobs are generated at
+export time via ``services.flat_view_exporter`` inside ``export_visual_proxy_job``.
+"""
 
 from __future__ import annotations
 

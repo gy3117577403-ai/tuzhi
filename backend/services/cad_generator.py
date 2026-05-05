@@ -107,6 +107,7 @@ def normalize_cad_params(params: dict[str, Any] | ConnectorCadParams) -> dict[st
             "manufacturing_accuracy": params.manufacturing_accuracy,
             "image_search_context": params.image_search_context,
             "image_search": params.image_search,
+            "flat_cad": params.flat_cad,
             "dimension_meta": {
                 "positions": params.dimensions["pin_count"],
                 "pitch_mm": params.dimensions["pin_pitch"],
@@ -178,6 +179,7 @@ def normalize_cad_params(params: dict[str, Any] | ConnectorCadParams) -> dict[st
     normalized.setdefault("manufacturing_accuracy", None)
     normalized.setdefault("image_search_context", None)
     normalized.setdefault("image_search", None)
+    normalized.setdefault("flat_cad", None)
     return normalized
 
 
@@ -334,6 +336,7 @@ def write_params_json(original_params: dict[str, Any] | ConnectorCadParams, para
         "image_feature_summary": params.get("image_feature_summary"),
         "vision_report_summary": params.get("vision_report_summary"),
         "uploaded_file_name": params.get("uploaded_file_name"),
+        "flat_cad": params.get("flat_cad"),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

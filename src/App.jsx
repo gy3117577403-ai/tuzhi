@@ -414,6 +414,7 @@ export default function App() {
               stlUrl={job.files?.model_stl}
               previewBaseColor={job.params?.preview_style?.base_color}
             />
+            <FlatCadPanel job={job} />
           </section>
 
           <aside className="inspector">
@@ -1490,6 +1491,84 @@ function ConfirmPanel({
   );
 }
 
+function FlatCadPanel({ job }) {
+  const params = job.params || {};
+  const fc = params.flat_cad;
+  const svgUrl = job.files?.flat_views_svg;
+  if (!fc?.enabled) return null;
+  const sc = fc.structure_completeness || {};
+  const mis = fc.missing_items || [];
+  const tis = fc.terminal_insertion_summary || {};
+  const vcs = fc.view_classification_summary || {};
+  const needManual = tis.requires_manual_confirmation !== false;
+  return (
+    <div className="flat-cad-panel">
+      <div className="flat-cad-head">
+        <h2>平面 CAD 工程視圖</h2>
+        <p className="flat-cad-sub">
+          核心交付物為 2D 示意圖（DXF / SVG / JSON），適用於 SOP / WI / QC；3D 僅為輔助預覽。
+        </p>
+      </div>
+      <div className="flat-cad-meta">
+        <span>狀態：<strong>{fc.status || '—'}</strong></span>
+        <span>結構完整性：<strong>{sc.status || '—'}</strong></span>
+        <span>分數：<strong>{sc.score != null ? sc.score : '—'}</strong></span>
+      </div>
+      <div className="flat-cad-views">
+        <div>
+          <span className="flat-label">正面／對插面</span>
+          <span className="flat-val">{vcs.mating_face_visible ? '影像側推定可見（需確認）' : '示意合成'}</span>
+        </div>
+        <div>
+          <span className="flat-label">反面／入線面</span>
+          <span className="flat-val">{vcs.wire_entry_face_visible ? '後側線束出口線索' : '示意合成'}</span>
+        </div>
+        <div>
+          <span className="flat-label">端子插入面（推定）</span>
+          <span className="flat-val">{vcs.terminal_insertion_face_likely || '—'}</span>
+        </div>
+        <div>
+          <span className="flat-label">插入方向（推定）</span>
+          <span className="flat-val">{tis.insertion_direction || '—'}</span>
+        </div>
+      </div>
+      <div className="flat-cad-terminal">
+        <span className="flat-label">建議插入面</span>
+        <span>{tis.recommended_insertion_face || '—'}</span>
+        <span className="flat-label">信心度</span>
+        <span>{tis.confidence || '—'}</span>
+        <span className="flat-label">需人工確認</span>
+        <span>{needManual ? '是' : '否'}</span>
+      </div>
+      <div className="flat-cad-warn" role="alert">
+        <AlertTriangle size={16} />
+        <span>端子插入方向為推斷結果，須依實物或廠家資料確認。非原廠尺寸圖。</span>
+      </div>
+      {sc.status && sc.status !== 'complete' && mis.length ? (
+        <div className="flat-cad-missing">
+          <strong>缺漏項目</strong>
+          <ul>{mis.map((m) => <li key={m}>{m}</li>)}</ul>
+        </div>
+      ) : null}
+      {fc.warnings && fc.warnings.length ? (
+        <ul className="flat-cad-warn-list">
+          {fc.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      ) : null}
+      {svgUrl ? (
+        <div className="flat-cad-svg-wrap">
+          <img className="flat-cad-svg" src={svgUrl} alt="平面視圖總覽 SVG" />
+        </div>
+      ) : null}
+      {fc.status === 'failed' && fc.error ? (
+        <p className="flat-cad-error">平面視圖生成失敗：{fc.error}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function DownloadPanel({ job }) {
   const params = job.params || {};
   const official = params.model_origin === 'official_cad';
@@ -1526,6 +1605,36 @@ function DownloadPanel({ job }) {
         ) : null}
         {showRecipe && job.files?.visual_recipe ? (
           <a href={fileUrl(job, 'visual_recipe')} download><span>下载视觉配方 JSON</span><Code size={14} /></a>
+        ) : null}
+        {job.files?.flat_front_dxf ? (
+          <a href={fileUrl(job, 'flat_front_dxf')} download><span>下載平面正面 DXF</span><Download size={14} /></a>
+        ) : null}
+        {job.files?.flat_rear_dxf ? (
+          <a href={fileUrl(job, 'flat_rear_dxf')} download><span>下載平面反面／入線面 DXF</span><Download size={14} /></a>
+        ) : null}
+        {job.files?.flat_top_dxf ? (
+          <a href={fileUrl(job, 'flat_top_dxf')} download><span>下載平面俯視 DXF</span><Download size={14} /></a>
+        ) : null}
+        {job.files?.flat_side_dxf ? (
+          <a href={fileUrl(job, 'flat_side_dxf')} download><span>下載平面側視 DXF</span><Download size={14} /></a>
+        ) : null}
+        {job.files?.flat_insertion_dxf ? (
+          <a href={fileUrl(job, 'flat_insertion_dxf')} download><span>下載端子插入方向 DXF</span><Download size={14} /></a>
+        ) : null}
+        {job.files?.flat_views_svg ? (
+          <a href={fileUrl(job, 'flat_views_svg')} download><span>下載平面總覽 SVG</span><Download size={14} /></a>
+        ) : null}
+        {job.files?.flat_recipe_json ? (
+          <a href={fileUrl(job, 'flat_recipe_json')} download><span>下載 2D recipe JSON</span><Code size={14} /></a>
+        ) : null}
+        {job.files?.flat_view_classification_json ? (
+          <a href={fileUrl(job, 'flat_view_classification_json')} download><span>下載視圖分類 JSON</span><Code size={14} /></a>
+        ) : null}
+        {job.files?.flat_terminal_insertion_json ? (
+          <a href={fileUrl(job, 'flat_terminal_insertion_json')} download><span>下載端子插入判斷 JSON</span><Code size={14} /></a>
+        ) : null}
+        {job.files?.flat_structure_report_json ? (
+          <a href={fileUrl(job, 'flat_structure_report_json')} download><span>下載結構完整性報告 JSON</span><Code size={14} /></a>
         ) : null}
       </div>
     </>

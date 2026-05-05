@@ -95,6 +95,7 @@ class ConnectorCadParams(BaseModel):
     image_search_context: dict[str, Any] | None = None
     image_search: dict[str, Any] | None = None
     uploaded_file_name: str | None = None
+    flat_cad: dict[str, Any] | None = None
 
 
 DEFAULT_DIMENSIONS: dict[str, DimensionValue] = {

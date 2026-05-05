@@ -22,6 +22,8 @@ import {
   confirmConnectorParams,
   createCadRegistryItem,
   createFileConnectorJob,
+  createJobFromManualImageUrl,
+  createJobFromSelectedImage,
   createTextConnectorJob,
   checkRegistryCache,
   checkRegistryItemCache,
@@ -42,6 +44,7 @@ import {
   repairRegistryItemCache,
   refreshCadRegistryCache,
   reviewCadRegistryItem,
+  searchConnectorImages,
   verifyRegistryAudit,
 } from './api/connectorCad';
 
@@ -88,6 +91,11 @@ export default function App() {
   const [aiTestFailed, setAiTestFailed] = useState(false);
   const [aiTestBusy, setAiTestBusy] = useState(false);
   const [aiTestMessage, setAiTestMessage] = useState('');
+  const [imageSearch, setImageSearch] = useState(null);
+  const [imageSearchBusy, setImageSearchBusy] = useState(false);
+  const [selectedCandidateId, setSelectedCandidateId] = useState('');
+  const [manualImageUrl, setManualImageUrl] = useState('');
+  const [manualSourceUrl, setManualSourceUrl] = useState('');
 
   const canGenerate = activeTab === 'text' ? inputText.trim().length > 0 : Boolean(file);
   const isBusy = status === 'uploading' || status === 'generating';
@@ -157,6 +165,65 @@ export default function App() {
     }
   };
 
+  const finishCreatedJob = async (created) => {
+    setJob(created);
+    setStatus('generating');
+    const finalJob = await pollConnectorJob(created.job_id);
+    setJob(finalJob);
+    setStatus(finalJob.status === 'failed' ? 'failed' : finalJob.status);
+    if (finalJob.status === 'failed') setError(finalJob.error || '鐢熸垚澶辫触');
+  };
+
+  const handleImageSearch = async () => {
+    const query = inputText.trim();
+    if (!query || imageSearchBusy || isBusy) return;
+    setError('');
+    setImageSearch(null);
+    setImageSearchBusy(true);
+    try {
+      const result = await searchConnectorImages(query, 8);
+      setImageSearch(result);
+    } catch (err) {
+      setError(err.message || '图片搜索失败');
+    } finally {
+      setImageSearchBusy(false);
+    }
+  };
+
+  const handleCreateFromCandidate = async (candidate) => {
+    if (!imageSearch?.search_id || !candidate?.id || isBusy) return;
+    setError('');
+    setSelectedCandidateId(candidate.id);
+    setStatus('generating');
+    try {
+      const created = await createJobFromSelectedImage(imageSearch.search_id, candidate.id, inputText.trim());
+      await finishCreatedJob(created);
+    } catch (err) {
+      setStatus('failed');
+      setError(err.message || '选择图片生成失败');
+    } finally {
+      setSelectedCandidateId('');
+    }
+  };
+
+  const handleManualImageGenerate = async () => {
+    const query = inputText.trim();
+    const imageUrl = manualImageUrl.trim();
+    if (!query || !imageUrl || isBusy) return;
+    setError('');
+    setSelectedCandidateId('manual_image');
+    setStatus('generating');
+    try {
+      const created = await createJobFromManualImageUrl(query, imageUrl, manualSourceUrl.trim(), '手动图片 URL');
+      await finishCreatedJob(created);
+    } catch (err) {
+      setStatus('failed');
+      setError(err.message || '手动图片 URL 生成失败');
+    } finally {
+      setSelectedCandidateId('');
+    }
+  };
+
   const handleConfirm = async () => {
     if (!job || isBusy) return;
     setError('');
@@ -188,6 +255,9 @@ export default function App() {
     setFile(null);
     setInputText('');
     setError('');
+    setImageSearch(null);
+    setManualImageUrl('');
+    setManualSourceUrl('');
     setStatus('idle');
   };
 
@@ -259,6 +329,7 @@ export default function App() {
                   value={inputText}
                   onChange={(event) => {
                     setInputText(event.target.value);
+                    setImageSearch(null);
                     if (!isBusy) setStatus('idle');
                   }}
                   placeholder="输入连接器型号或描述"
@@ -267,7 +338,7 @@ export default function App() {
                 <div className="examples">
                   <span>示例</span>
                   {['1-968970-1', 'TE 282104-1', 'LOCAL SAMPLE STEP', 'CACHE SAMPLE STEP'].map((item) => (
-                    <button key={item} onClick={() => setInputText(item)}>{item}</button>
+                    <button key={item} onClick={() => { setInputText(item); setImageSearch(null); }}>{item}</button>
                   ))}
                 </div>
               </>
@@ -278,6 +349,30 @@ export default function App() {
               {isBusy ? <Loader2 className="spin" size={17} /> : <Box size={17} />}
               <span>{isBusy ? WORKFLOW_STATUS[status].label : '生成 CAD 文件'}</span>
             </button>
+            {activeTab === 'text' ? (
+              <>
+                <button
+                  className="image-search-button"
+                  disabled={!inputText.trim() || imageSearchBusy || isBusy}
+                  onClick={handleImageSearch}
+                >
+                  {imageSearchBusy ? <Loader2 className="spin" size={16} /> : <Camera size={16} />}
+                  <span>{imageSearchBusy ? '搜索图片中...' : '搜索图片生成相似 CAD'}</span>
+                </button>
+                <ImageSearchPanel
+                  search={imageSearch}
+                  busy={imageSearchBusy}
+                  selectedCandidateId={selectedCandidateId}
+                  manualImageUrl={manualImageUrl}
+                  manualSourceUrl={manualSourceUrl}
+                  setManualImageUrl={setManualImageUrl}
+                  setManualSourceUrl={setManualSourceUrl}
+                  onSelect={handleCreateFromCandidate}
+                  onManualGenerate={handleManualImageGenerate}
+                  canManualGenerate={Boolean(inputText.trim() && manualImageUrl.trim() && !isBusy)}
+                />
+              </>
+            ) : null}
             {isBusy && activeTab === 'text' && (
               <p className="generating-hint">
                 正在搜尋相關產品圖 → 排序可信圖片 → 提取外觀特徵 → 生成視覺近似 CAD（若未設定圖片搜尋 API，將自動回退既有流程）。
@@ -325,6 +420,7 @@ export default function App() {
               </div>
             )}
             <SourcePanel job={job} />
+            <ImageSearchSourcePanel job={job} />
             <AppearanceDetailPanel job={job} />
             <AiExtractionPanel job={job} />
             <AuditPanel job={job} />
@@ -387,6 +483,123 @@ function FileDropZone({ file, fileInputRef, setFile, setStatus }) {
   );
 }
 
+function ImageSearchPanel({
+  search,
+  busy,
+  selectedCandidateId,
+  manualImageUrl,
+  manualSourceUrl,
+  setManualImageUrl,
+  setManualSourceUrl,
+  onSelect,
+  onManualGenerate,
+  canManualGenerate,
+}) {
+  if (busy) {
+    return (
+      <div className="image-search-panel loading">
+        <Loader2 className="spin" size={18} />
+        <span>正在搜索候选图片...</span>
+      </div>
+    );
+  }
+  if (!search) return null;
+  const results = search.results || [];
+  const notConfigured = search.status === 'not_configured';
+  return (
+    <div className="image-search-panel">
+      <div className="image-search-head">
+        <div>
+          <strong>{notConfigured ? '图片搜索未配置' : '候选图片'}</strong>
+          <span>{search.provider || 'unknown'} / {search.status || 'unknown'} / {results.length} results</span>
+        </div>
+        {search.search_id ? <code>{search.search_id}</code> : null}
+      </div>
+      <div className="image-source-alert">
+        该模型由搜索图片生成，仅为外观近似 CAD，不代表原厂 CAD，不可作为制造尺寸依据。
+      </div>
+      {Array.isArray(search.warnings) && search.warnings.length ? (
+        <div className="image-search-warnings">{search.warnings.join('；')}</div>
+      ) : null}
+      {notConfigured ? (
+        <ManualImageUrlForm
+          imageUrl={manualImageUrl}
+          sourceUrl={manualSourceUrl}
+          setImageUrl={setManualImageUrl}
+          setSourceUrl={setManualSourceUrl}
+          onGenerate={onManualGenerate}
+          canGenerate={canManualGenerate}
+          busy={selectedCandidateId === 'manual_image'}
+        />
+      ) : null}
+      {results.length ? (
+        <div className="candidate-grid">
+          {results.map((candidate) => (
+            <article key={candidate.id} className="candidate-card">
+              <div className="candidate-thumb">
+                <img src={candidate.thumbnail_url || candidate.image_url} alt={candidate.title || 'candidate connector'} />
+              </div>
+              <div className="candidate-body">
+                <strong>{candidate.title || 'Untitled candidate'}</strong>
+                <span>{candidate.domain || domainFromUrl(candidate.source_url) || 'unknown source'}</span>
+                <p>{candidate.rank_reason || 'Connector-like visual candidate'}</p>
+                {candidate.source_url ? (
+                  <a href={candidate.source_url} target="_blank" rel="noreferrer">source_url</a>
+                ) : null}
+              </div>
+              <button
+                className="candidate-select"
+                onClick={() => onSelect(candidate)}
+                disabled={Boolean(selectedCandidateId)}
+              >
+                {selectedCandidateId === candidate.id ? <Loader2 className="spin" size={14} /> : <Camera size={14} />}
+                <span>选择此图生成 CAD</span>
+              </button>
+            </article>
+          ))}
+        </div>
+      ) : !notConfigured ? (
+        <div className="empty-panel">没有返回候选图片，可稍后重试或检查图片搜索配置。</div>
+      ) : null}
+    </div>
+  );
+}
+
+function ManualImageUrlForm({
+  imageUrl,
+  sourceUrl,
+  setImageUrl,
+  setSourceUrl,
+  onGenerate,
+  canGenerate,
+  busy,
+}) {
+  return (
+    <div className="manual-image-form">
+      <label>
+        <span>手动图片 URL</span>
+        <input
+          value={imageUrl}
+          onChange={(event) => setImageUrl(event.target.value)}
+          placeholder="https://example.com/connector-photo.png"
+        />
+      </label>
+      <label>
+        <span>来源链接（可选）</span>
+        <input
+          value={sourceUrl}
+          onChange={(event) => setSourceUrl(event.target.value)}
+          placeholder="https://example.com/product-page"
+        />
+      </label>
+      <button className="candidate-select manual" disabled={!canGenerate || busy} onClick={onGenerate}>
+        {busy ? <Loader2 className="spin" size={14} /> : <Camera size={14} />}
+        <span>使用手动图片 URL 生成 CAD</span>
+      </button>
+    </div>
+  );
+}
+
 function StatusBadge({ status }) {
   const config = WORKFLOW_STATUS[status] || WORKFLOW_STATUS.idle;
   return <span className={`status-badge ${config.tone}`}>{config.label}</span>;
@@ -409,7 +622,7 @@ function appearanceOriginLabel(origin) {
   if (origin === 'official_cad') return '官方 CAD';
   if (origin === 'series_template') return '系列模板近似模型';
   if (origin === 'image_approximated') return '图片驱动外观近似模型';
-  if (origin === 'image_search_approximated') return '圖片搜尋驅動外觀近似';
+  if (origin === 'image_search_approximated') return '搜索图片驱动外观近似 CAD';
   if (origin === 'image_upload_approximated') return '上傳圖片驅動外觀近似';
   if (origin === 'generic_mvp') return '通用参数化白模';
   if (origin === 'third_party_cad') return '第三方 CAD';
@@ -550,6 +763,48 @@ function SourcePanel({ job }) {
       {params.model_origin === 'image_approximated' && <em>依据图像的外观近似，非制造级精确模型。</em>}
       {params.selection_reason && <small>选择策略：{params.selection_reason}</small>}
     </div>
+  );
+}
+
+function ImageSearchSourcePanel({ job }) {
+  const params = job.params || {};
+  if (params.model_origin !== 'image_search_approximated') return null;
+  const imageSearch = params.image_search || {};
+  const context = params.image_search_context || {};
+  const selected = imageSearch.selected || context.rank?.selected || {};
+  const search = context.search || {};
+  const recipe = params.visual_recipe || {};
+  const imageUrl = selected.image_url || selected.thumbnail_url || '';
+  const sourceUrl = selected.source_url || params.source_url || '';
+  const recipeSummary = {
+    color: recipe.color,
+    confidence: recipe.confidence,
+    cavity_array: recipe.cavity_array,
+    front_shroud: recipe.front_shroud,
+    top_features: recipe.top_features,
+    side_features: recipe.side_features,
+  };
+  return (
+    <>
+      <div className="section-label">搜索图片来源</div>
+      <div className="audit-card image-source-card">
+        <div className="image-source-alert">
+          该模型由搜索图片生成，仅为外观近似 CAD，不代表原厂 CAD，不可作为制造尺寸依据。
+        </div>
+        {imageUrl ? (
+          <img className="selected-image-preview" src={imageUrl} alt={selected.title || 'selected connector reference'} />
+        ) : null}
+        <AuditRow label="image_url" value={imageUrl || '未记录'} mono />
+        <AuditRow label="source_url" value={sourceUrl || '未记录'} mono />
+        <AuditRow label="search_id" value={search.search_id || imageSearch.search_id || '未记录'} mono />
+        <AuditRow label="selected_candidate_id" value={selected.id || imageSearch.selected_candidate_id || '未记录'} mono />
+        <AuditRow label="selection_mode" value={search.provider === 'manual_url' ? 'manual_url' : 'selected_candidate'} />
+        <AuditRow label="provider" value={imageSearch.provider || search.provider || '未记录'} />
+        <AuditRow label="status" value={imageSearch.status || search.status || '未记录'} />
+        <div className="section-label subtle">visual_recipe 摘要</div>
+        <pre className="ai-json-preview">{JSON.stringify(recipeSummary, null, 2)}</pre>
+      </div>
+    </>
   );
 }
 
@@ -1121,7 +1376,7 @@ function modelSourceTitle(job) {
   if (params.model_origin === 'third_party_cad' || params.source_type === 'third_party') return '第三方 CAD 模型';
   if (params.model_origin === 'series_template') return '系列模板近似模型';
   if (params.model_origin === 'image_approximated') return '图片驱动外观近似';
-  if (params.model_origin === 'image_search_approximated') return '圖片搜尋驅動外觀近似模型';
+  if (params.model_origin === 'image_search_approximated') return '搜索图片驱动外观近似 CAD';
   if (params.model_origin === 'image_upload_approximated') return '上傳圖片驅動外觀近似模型';
   if (params.model_origin === 'generic_mvp') return '通用参数化白模';
   return '参数化工程近似模型';
@@ -1133,7 +1388,7 @@ function modelSourceSubtitle(job) {
   if (params.model_origin === 'third_party_cad' || params.source_type === 'third_party') return '第三方模型，需核验';
   if (params.model_origin === 'series_template') return '系列模板外形近似，非原厂 CAD；关键尺寸需确认';
   if (params.model_origin === 'image_approximated') return '依据上传图像的外观近似模型，非计量级精确 CAD';
-  if (params.model_origin === 'image_search_approximated') return '依網路搜尋圖片之外觀近似；須人工確認尺寸';
+  if (params.model_origin === 'image_search_approximated') return '该模型由搜索图片生成，仅为外观近似 CAD，不代表原厂 CAD，不可作为制造尺寸依据。';
   if (params.model_origin === 'image_upload_approximated') return '依上傳圖片之外觀近似；須人工確認尺寸';
   if (params.model_origin === 'generic_mvp') return '升级版通用参数化白模；仅工程近似预览';
   return '需人工确认关键尺寸，不是原厂精确 CAD';
@@ -1144,10 +1399,19 @@ function originText(origin) {
   if (origin === 'third_party_cad') return '第三方 CAD';
   if (origin === 'series_template') return '系列模板近似';
   if (origin === 'image_approximated') return '图片近似';
-  if (origin === 'image_search_approximated') return '圖片搜尋近似';
+  if (origin === 'image_search_approximated') return '搜索图片近似';
   if (origin === 'image_upload_approximated') return '上傳圖片近似';
   if (origin === 'generic_mvp') return '通用白模';
   return '参数化 MVP';
+}
+
+function domainFromUrl(url) {
+  if (!url) return '';
+  try {
+    return new URL(url, window.location.origin).hostname;
+  } catch {
+    return '';
+  }
 }
 
 function sourceCategoryText(category, origin) {

@@ -39,6 +39,30 @@ export type ConnectorJob = {
   warning?: string;
 };
 
+export type ConnectorImageSearchCandidate = {
+  id: string;
+  rank: number;
+  title: string;
+  image_url: string;
+  thumbnail_url: string;
+  source_url: string;
+  domain: string;
+  rank_reason?: string;
+  score?: number;
+  width?: number;
+  height?: number;
+};
+
+export type ConnectorImageSearch = {
+  search_id: string;
+  query: string;
+  provider: string;
+  status: 'success' | 'not_configured' | 'failed' | 'manual' | string;
+  results: ConnectorImageSearchCandidate[];
+  warnings: string[];
+  created_at?: string;
+};
+
 export async function getAiApiStatus(): Promise<AiApiStatus> {
   const response = await fetch(`${API_BASE}/api/ai/status`);
   return parseResponse(response);
@@ -73,6 +97,47 @@ export async function createTextConnectorJob(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ input_type: 'text', text, params, ...options }),
+  });
+  return parseResponse(response);
+}
+
+export async function searchConnectorImages(query: string, maxResults = 8): Promise<ConnectorImageSearch> {
+  const response = await fetch(`${API_BASE}/api/connector-cad/image-search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, max_results: maxResults }),
+  });
+  return parseResponse(response);
+}
+
+export async function getConnectorImageSearch(searchId: string): Promise<ConnectorImageSearch> {
+  const response = await fetch(`${API_BASE}/api/connector-cad/image-search/${searchId}`);
+  return parseResponse(response);
+}
+
+export async function createJobFromSelectedImage(
+  searchId: string,
+  candidateId: string,
+  query?: string,
+): Promise<ConnectorJob> {
+  const response = await fetch(`${API_BASE}/api/connector-cad/jobs/from-selected-image`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ search_id: searchId, candidate_id: candidateId, query }),
+  });
+  return parseResponse(response);
+}
+
+export async function createJobFromManualImageUrl(
+  query: string,
+  imageUrl: string,
+  sourceUrl = '',
+  title = 'manual image URL',
+): Promise<ConnectorJob> {
+  const response = await fetch(`${API_BASE}/api/connector-cad/jobs/from-manual-image-url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, image_url: imageUrl, source_url: sourceUrl, title }),
   });
   return parseResponse(response);
 }

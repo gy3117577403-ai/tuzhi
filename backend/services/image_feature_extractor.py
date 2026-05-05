@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,8 @@ def _dominant_color_robust(img_bgr: np.ndarray) -> tuple[str, float]:
     # Blue in OpenCV HSV: hue ~100-130 (two wraps handled by single range for typical connector blues)
     mask_blue = cv2.inRange(hsv, np.array([95, 35, 35]), np.array([135, 255, 255]))
     frac_blue = float(np.count_nonzero(mask_blue)) / max(h * w, 1)
+    mask_dark = cv2.inRange(hsv, np.array([0, 0, 0]), np.array([179, 255, 82]))
+    frac_dark = float(np.count_nonzero(mask_dark)) / max(h * w, 1)
 
     mean_bgr = np.mean(img_bgr.reshape(-1, 3), axis=0)
     mean_name = _nearest_color_name(mean_bgr)
@@ -46,6 +49,8 @@ def _dominant_color_robust(img_bgr: np.ndarray) -> tuple[str, float]:
     if frac_blue >= 0.04 and mean_name in ("grey", "white", "black"):
         # tinted photo — still likely blue housing if mask hits connectors
         return "blue", frac_blue
+    if frac_dark >= 0.08 and frac_blue < 0.04:
+        return "black", frac_blue
     return mean_name, frac_blue
 
 
@@ -61,7 +66,7 @@ def _largest_mask_bbox(mask: np.ndarray) -> dict[str, int]:
 def _infer_grid_from_circles(cavity_candidates: list[dict[str, Any]]) -> tuple[int, int, int, str]:
     n = len(cavity_candidates)
     if n <= 0:
-        return 2, 3, 4, "medium"
+        return 1, 1, 1, "low"
     if n == 1:
         return 1, 1, 1, "low"
     if n == 2:
@@ -104,6 +109,7 @@ def extract_image_features(image_path: str | Path) -> dict[str, Any]:
             bbox = {"x": int(x), "y": int(y), "w": int(bw), "h": int(bh)}
 
     aspect = float(bbox["w"]) / max(float(bbox["h"]), 1.0)
+    bbox_area_ratio = (bbox["w"] * bbox["h"]) / max(w * h, 1)
     contours_main, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cnt_area = 0.0
     if contours_main:
@@ -125,6 +131,13 @@ def extract_image_features(image_path: str | Path) -> dict[str, Any]:
     if circles is not None:
         for cx, cy, r in np.round(circles[0]).astype(int):
             cavity_candidates.append({"cx": int(cx), "cy": int(cy), "radius_px": int(r)})
+    circle_area_ratio = 0.0
+    large_circle_count = 0
+    for circ in cavity_candidates:
+        rr = float(circ.get("radius_px") or 0)
+        circle_area_ratio = max(circle_area_ratio, float(np.pi * rr * rr) / max(w * h, 1))
+        if rr >= min(w, h) * 0.13:
+            large_circle_count += 1
 
     edge_mean = float(np.mean(edges)) + 1e-6
     top_band = float(np.mean(edges[: max(1, int(h * 0.26)), :]))
@@ -151,6 +164,11 @@ def extract_image_features(image_path: str | Path) -> dict[str, Any]:
     front_shroud = front_band > edge_mean * 0.82 or bottom_band > edge_mean * 0.88
     side_latch = side_l > 12.0 or side_r > 12.0
     wire_exit = bottom_band > edge_mean * 0.92
+    round_connector = (
+        (dominant != "blue" and large_circle_count >= 1)
+        or (dominant != "blue" and circle_area_ratio > 0.08 and 0.45 <= aspect <= 2.0)
+        or (dominant == "black" and 0.55 <= aspect <= 2.25 and rectangularity < 0.58 and bbox_area_ratio > 0.06)
+    )
 
     # Multi cavity: circles OR busy front texture OR blue housing with structured front
     texture_front = float(np.std(blurred[mid_y0:mid_y1, :]))
@@ -160,10 +178,11 @@ def extract_image_features(image_path: str | Path) -> dict[str, Any]:
         or (blue_frac >= 0.06 and texture_front > 14.0)
         or (dominant == "blue" and front_band > edge_mean * 0.95)
     )
+    if round_connector and len(cavity_candidates) <= 1:
+        multi_cavity = False
 
     cx_t = (bbox["x"] + bbox["w"] / 2) / max(w, 1)
     cy_t = (bbox["y"] + bbox["h"] / 2) / max(h, 1)
-    bbox_area_ratio = (bbox["w"] * bbox["h"]) / max(w * h, 1)
     front_face_visible = (0.15 < cx_t < 0.85 and 0.10 < cy_t < 0.90 and bbox_area_ratio > 0.06) or bbox_area_ratio > 0.12
 
     rows_g, cols_g, active_g, layout_conf = _infer_grid_from_circles(cavity_candidates)
@@ -178,7 +197,9 @@ def extract_image_features(image_path: str | Path) -> dict[str, Any]:
     }
 
     body_shape = "rectangular_housing"
-    if rectangularity < 0.38 or bbox_area_ratio > 0.35:
+    if round_connector:
+        body_shape = "cylindrical_connector"
+    elif rectangularity < 0.38 or bbox_area_ratio > 0.35:
         body_shape = "rounded_rectangular"
 
     if top_dual and aspect > 1.05:
@@ -215,6 +236,7 @@ def extract_image_features(image_path: str | Path) -> dict[str, Any]:
         "width_px": int(w),
         "height_px": int(h),
         "dominant_color": dominant,
+        "source_image_sha256": _sha256(path),
         "blue_fraction_estimate": round(blue_frac, 4),
         "body_shape": body_shape,
         "front_face_visible": bool(front_face_visible),
@@ -237,6 +259,7 @@ def summarize_features_for_storage(features: dict[str, Any]) -> dict[str, Any]:
     """Smaller payload attached to job params for UI."""
     return {
         "dominant_color": features.get("dominant_color"),
+        "source_image_sha256": features.get("source_image_sha256"),
         "body_shape": features.get("body_shape"),
         "front_face_visible": features.get("front_face_visible"),
         "bounding_box_px": features.get("bounding_box_px"),
@@ -248,3 +271,11 @@ def summarize_features_for_storage(features: dict[str, Any]) -> dict[str, Any]:
         "confidence": features.get("confidence"),
         "warnings": features.get("warnings"),
     }
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

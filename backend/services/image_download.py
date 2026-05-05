@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from PIL import Image, UnidentifiedImageError
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MAX_IMAGE_BYTES = 15 * 1024 * 1024
@@ -52,6 +53,10 @@ def download_image_to_job(image_url: str, output_dir: Path, filename_prefix: str
             "content_type": "",
             "size_bytes": 0,
             "sha256": "",
+            "image_width": 0,
+            "image_height": 0,
+            "decode_ok": False,
+            "download_warnings": warnings,
             "warnings": warnings,
         }
 
@@ -89,6 +94,9 @@ def _copy_file_url(url: str, output_dir: Path, filename_prefix: str) -> dict[str
 
 
 def _payload(path: Path, content_type: str, warnings: list[str]) -> dict[str, Any]:
+    decode = _decode_image(path)
+    if not decode["decode_ok"]:
+        raise ValueError(decode["error"] or "Downloaded file is not a decodable image")
     return {
         "ok": True,
         "saved_path": str(path),
@@ -96,8 +104,27 @@ def _payload(path: Path, content_type: str, warnings: list[str]) -> dict[str, An
         "content_type": content_type,
         "size_bytes": path.stat().st_size,
         "sha256": _sha256(path),
+        "image_width": decode["image_width"],
+        "image_height": decode["image_height"],
+        "decode_ok": True,
+        "download_warnings": warnings,
         "warnings": warnings,
     }
+
+
+def _decode_image(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(16)
+        if header.lstrip().lower().startswith((b"<!doctype", b"<html", b"{", b"[")):
+            return {"decode_ok": False, "image_width": 0, "image_height": 0, "error": "Downloaded content is not an image"}
+        with Image.open(path) as img:
+            img.verify()
+        with Image.open(path) as img:
+            w, h = img.size
+        return {"decode_ok": True, "image_width": int(w), "image_height": int(h), "error": ""}
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        return {"decode_ok": False, "image_width": 0, "image_height": 0, "error": str(exc)}
 
 
 def _sha256(path: Path) -> str:

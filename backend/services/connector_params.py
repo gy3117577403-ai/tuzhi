@@ -94,6 +94,9 @@ class ConnectorCadParams(BaseModel):
     manufacturing_accuracy: str | None = None
     image_search_context: dict[str, Any] | None = None
     image_search: dict[str, Any] | None = None
+    selected_image_sha256: str | None = None
+    generation_consistency: dict[str, Any] | None = None
+    unsupported_visual_shape: str | None = None
     uploaded_file_name: str | None = None
     flat_cad: dict[str, Any] | None = None
     sop_wi: dict[str, Any] | None = None

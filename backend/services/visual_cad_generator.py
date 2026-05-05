@@ -20,6 +20,10 @@ VISUAL_PROXY_DISCLAIMER = (
 
 def build_visual_proxy_geometry(recipe: dict[str, Any]) -> cq.Workplane:
     """Rich visual-proxy connector shell: split body, shroud lip + recess, cavity grid, rails, sides, rear."""
+    base_body = recipe.get("base_body") or {}
+    if str(base_body.get("type") or base_body.get("style") or "") == "cylindrical_connector":
+        return _build_cylindrical_proxy(recipe)
+
     dim = recipe.get("dimension_assumptions") or {}
     L = float(dim.get("length_mm", 28))
     W = float(dim.get("width_mm", 24))
@@ -117,6 +121,53 @@ def build_visual_proxy_geometry(recipe: dict[str, Any]) -> cq.Workplane:
     return model
 
 
+def _build_cylindrical_proxy(recipe: dict[str, Any]) -> cq.Workplane:
+    """Simple round connector proxy, used when the selected image looks cylindrical."""
+    dim = recipe.get("dimension_assumptions") or {}
+    length = float(dim.get("length_mm") or 35.0)
+    diameter = float(dim.get("diameter_mm") or dim.get("height_mm") or 18.0)
+    cavity_d = float(dim.get("cavity_diameter_mm") or 4.2)
+
+    body = cq.Workplane("YZ").circle(diameter / 2).extrude(length).translate((-length / 2, 0, 0))
+    body = body.edges().fillet(min(1.8, diameter * 0.06))
+
+    front_flange = (
+        cq.Workplane("YZ")
+        .circle(diameter * 0.60)
+        .extrude(3.2)
+        .translate((length / 2 - 1.2, 0, 0))
+    )
+    rear_boot = (
+        cq.Workplane("YZ")
+        .circle(diameter * 0.28)
+        .extrude(7.0)
+        .translate((-length / 2 - 6.0, 0, 0))
+    )
+    model = body.union(front_flange).union(rear_boot)
+
+    cavity = (
+        cq.Workplane("YZ")
+        .circle(max(1.5, cavity_d / 2))
+        .extrude(5.0)
+        .translate((length / 2 - 3.0, 0, 0))
+    )
+    model = model.cut(cavity)
+
+    rib_h = max(1.2, diameter * 0.08)
+    rib = (
+        cq.Workplane("XY")
+        .box(length * 0.58, diameter * 0.12, rib_h)
+        .translate((0, 0, diameter / 2 + rib_h / 2 - 0.2))
+    )
+    side_key = (
+        cq.Workplane("XY")
+        .box(length * 0.26, diameter * 0.10, rib_h * 0.9)
+        .translate((length * 0.12, diameter / 2 - 0.1, 0))
+    )
+    model = model.union(rib).union(side_key)
+    return model
+
+
 def generate_visual_proxy_cad(recipe: dict[str, Any], output_dir: str | Path) -> dict[str, Path]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -182,6 +233,9 @@ def export_visual_proxy_job(params: ConnectorCadParams, output_dir: str | Path) 
     normalized["appearance_pipeline"] = params_out.appearance_pipeline
     normalized["image_feature_summary"] = params_out.image_feature_summary
     normalized["vision_report_summary"] = params_out.vision_report_summary
+    normalized["selected_image_sha256"] = params_out.selected_image_sha256
+    normalized["generation_consistency"] = params_out.generation_consistency
+    normalized["unsupported_visual_shape"] = params_out.unsupported_visual_shape
     normalized["uploaded_file_name"] = params_out.uploaded_file_name
     normalized["image_search_context"] = params_out.image_search_context
     normalized["image_search"] = params_out.image_search

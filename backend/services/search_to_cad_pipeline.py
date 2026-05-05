@@ -1,4 +1,4 @@
-"""Orchestrate image search → rank → download → vision features → visual CAD.
+"""Orchestrate image search -> rank -> download -> vision features -> visual CAD.
 
 2D flat schematic views (DXF/SVG/JSON) for image-derived jobs are generated at
 export time via ``services.flat_view_exporter`` inside ``export_visual_proxy_job``.
@@ -23,14 +23,16 @@ from services.visual_shape_grammar import build_shape_recipe_from_visual_feature
 
 def _disclaimer_visual_search() -> str:
     return (
-        "该模型由搜索图片自动生成，仅为外观近似 CAD，不代表原厂精确几何或制造级尺寸。"
-        " 关键尺寸必须人工确认后方可用于生产。"
+        "This model is generated from a searched image as an appearance-only approximate CAD proxy. "
+        "It is not official manufacturer geometry and not manufacturing-grade. "
+        "All critical dimensions require manual confirmation before production use."
     )
 
 
 def _disclaimer_upload() -> str:
     return (
-        "该模型依据上传图像的视觉近似生成，仅为外观参考，非原厂精确 CAD；制造前须人工确认关键尺寸。"
+        "This model is generated from an uploaded image as an appearance-only visual proxy. "
+        "It is not official CAD; confirm all critical dimensions before manufacturing."
     )
 
 
@@ -94,6 +96,44 @@ def _apply_recipe_dimensions(base: ConnectorCadParams, recipe: dict[str, Any]) -
     return np
 
 
+def _build_generation_consistency(features: dict[str, Any], recipe: dict[str, Any], selected_sha: str = "") -> dict[str, Any]:
+    image_color = str(features.get("dominant_color") or "unknown")
+    recipe_color = str(recipe.get("color") or "unknown")
+    image_shape = str(features.get("body_shape") or "unknown")
+    body = recipe.get("base_body") or {}
+    recipe_body = str(body.get("type") or body.get("style") or "unknown")
+
+    dark_colors = {"black", "dark", "grey", "gray"}
+    color_ok = image_color == "unknown" or recipe_color == "unknown" or image_color == recipe_color
+    if image_color in dark_colors:
+        color_ok = recipe_color in dark_colors
+    if image_color == "blue":
+        color_ok = recipe_color == "blue"
+
+    shape_ok = True
+    if image_shape in {"cylindrical_connector", "round_connector", "circular_housing"}:
+        shape_ok = recipe_body == "cylindrical_connector"
+    elif image_shape in {"rectangular_housing", "rounded_rectangular"}:
+        shape_ok = recipe_body in {"rectangular_housing", "rounded_rectangular", "rectangular"}
+
+    warnings: list[str] = []
+    if not color_ok:
+        warnings.append("Recipe color does not match selected image dominant color.")
+    if not shape_ok:
+        warnings.append("Recipe body shape does not match selected image body shape.")
+
+    return {
+        "selected_image_sha256": selected_sha or features.get("source_image_sha256") or recipe.get("source_image_sha256") or "",
+        "image_dominant_color": image_color,
+        "recipe_color": recipe_color,
+        "image_body_shape": image_shape,
+        "recipe_body_type": recipe_body,
+        "recipe_color_matches_image": bool(color_ok),
+        "recipe_shape_matches_image": bool(shape_ok),
+        "warnings": warnings,
+    }
+
+
 def generate_cad_from_search(
     query: str,
     output_dir: Path,
@@ -106,9 +146,9 @@ def generate_cad_from_search(
     accepted_risk_code: str = "",
 ) -> tuple[ConnectorCadParams | None, dict[str, Any]]:
     """
-    Full pipeline: search → rank → download → features → recipe-ready params.
+    Full pipeline: search 閳?rank 閳?download 閳?features 閳?recipe-ready params.
 
-    Returns (params, meta). params is None → caller should fall back to registry / AI / generic.
+    Returns (params, meta). params is None 閳?caller should fall back to registry / AI / generic.
     """
     meta: dict[str, Any] = {"image_search": {}}
 
@@ -136,6 +176,7 @@ def generate_cad_from_search(
             dl = download_image_to_job(fallback_url, output_dir, "reference_selected")
         if not dl.get("ok"):
             meta["error"] = dl.get("error") or "Failed to download selected_image_url"
+            meta["download"] = dl
             return None, meta
         img_path = Path(dl["saved_path"])
         selected = selected_image or {
@@ -145,6 +186,16 @@ def generate_cad_from_search(
             "source_url": selected_image_url.strip(),
             "domain": "",
             "rank": 1,
+        }
+        selected = {
+            **selected,
+            "downloaded_filename": dl.get("filename", ""),
+            "sha256": dl.get("sha256", ""),
+            "selected_image_sha256": dl.get("sha256", ""),
+            "image_width": dl.get("image_width", 0),
+            "image_height": dl.get("image_height", 0),
+            "decode_ok": bool(dl.get("decode_ok")),
+            "download_warnings": dl.get("download_warnings") or dl.get("warnings") or [],
         }
         selected_part_match = selected.get("part_match") or {}
         selected_match_evidence = selected.get("match_evidence") or {}
@@ -188,6 +239,16 @@ def generate_cad_from_search(
         if not dl.get("ok"):
             return None, {**meta, "error": dl.get("error") or "download_failed", "rank": ranked}
         img_path = Path(dl["saved_path"])
+        sel = {
+            **sel,
+            "downloaded_filename": dl.get("filename", ""),
+            "sha256": dl.get("sha256", ""),
+            "selected_image_sha256": dl.get("sha256", ""),
+            "image_width": dl.get("image_width", 0),
+            "image_height": dl.get("image_height", 0),
+            "decode_ok": bool(dl.get("decode_ok")),
+            "download_warnings": dl.get("download_warnings") or dl.get("warnings") or [],
+        }
 
         (output_dir / "selected_image.json").write_text(
             json.dumps({"selected": sel, "rank_summary": ranked, "download": dl}, ensure_ascii=False, indent=2),
@@ -200,6 +261,9 @@ def generate_cad_from_search(
         selected_generation_risk = selected.get("generation_risk") or {}
 
     feats = extract_image_features(img_path)
+    selected_sha = str((selected if "selected" in locals() else {}).get("selected_image_sha256") or feats.get("source_image_sha256") or "")
+    if selected_sha:
+        feats["source_image_sha256"] = selected_sha
     (output_dir / "image_features.json").write_text(
         json.dumps(feats, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -216,6 +280,10 @@ def generate_cad_from_search(
     (output_dir / "vision_report.json").write_text(json.dumps(vision, ensure_ascii=False, indent=2), encoding="utf-8")
 
     recipe = build_shape_recipe_from_visual_features(feats, vision, {})
+    if selected_sha:
+        recipe["source_image_sha256"] = selected_sha
+    consistency = _build_generation_consistency(feats, recipe, selected_sha)
+    recipe["generation_consistency"] = consistency
     (output_dir / "visual_recipe.json").write_text(json.dumps(recipe, ensure_ascii=False, indent=2), encoding="utf-8")
 
     np = _apply_recipe_dimensions(base_params, recipe)
@@ -231,6 +299,8 @@ def generate_cad_from_search(
             "template_name": "VISUAL_GRAMMAR_PROXY",
             "appearance_confidence": str(recipe.get("confidence") or "medium"),
             "preview_style": {"base_color": recipe.get("color") or "grey"},
+            "selected_image_sha256": selected_sha,
+            "generation_consistency": consistency,
             "geometry_basis": "visual_shape_grammar",
             "manufacturing_accuracy": "visual_proxy_only",
             "visual_recipe": recipe,
@@ -257,6 +327,17 @@ def generate_cad_from_search(
                 "reference_image_file": img_path.name,
                 "results_file": "image_search_results.json",
                 "selected_image_file": "selected_image.json",
+                "selected_image_sha256": selected_sha,
+                "download": {
+                    "filename": (selected if "selected" in locals() else {}).get("downloaded_filename", ""),
+                    "content_type": (dl if "dl" in locals() else {}).get("content_type", ""),
+                    "size_bytes": (dl if "dl" in locals() else {}).get("size_bytes", 0),
+                    "decode_ok": (dl if "dl" in locals() else {}).get("decode_ok", False),
+                    "image_width": (dl if "dl" in locals() else {}).get("image_width", 0),
+                    "image_height": (dl if "dl" in locals() else {}).get("image_height", 0),
+                    "sha256": selected_sha,
+                    "warnings": (dl if "dl" in locals() else {}).get("download_warnings", []),
+                },
             },
             "appearance_pipeline": {
                 "used": True,
@@ -269,6 +350,7 @@ def generate_cad_from_search(
                 "visual_recipe_file": "visual_recipe.json",
                 "image_search_results_file": "image_search_results.json",
                 "selected_image_file": "selected_image.json",
+                "generation_consistency": consistency,
             },
             "visual_match": {
                 "matched_from_registry": False,
@@ -278,7 +360,7 @@ def generate_cad_from_search(
             "warning": PROVISIONAL_WARNING + " " + _disclaimer_visual_search() + evidence_warning,
             "source_url": str((rank_summary.get("selected") or {}).get("source_url") or selected_image_url or ""),
             "ai_extraction": _ai_skipped(),
-            "notes": "Dimensions derived from visual proxy assumptions — confirm before manufacturing.",
+            "notes": "Dimensions derived from visual proxy assumptions 閳?confirm before manufacturing.",
         }
     )
 
@@ -374,19 +456,22 @@ def build_params_from_uploaded_image(
     except Exception as exc:
         return base_params.model_copy(
             update={
-                "model_origin": "generic_mvp",
-                "template_name": "GENERIC_RECTANGULAR_CONNECTOR",
+                "status": "failed",
+                "error": f"decode_or_extract_failed:{exc!s}",
+                "model_origin": "image_upload_approximated",
+                "template_name": "VISUAL_GRAMMAR_PROXY",
                 "uploaded_file_name": filename,
                 "ai_extraction": _ai_skipped(),
                 "appearance_pipeline": {
-                    "used": True,
-                    "mode": "generic_mvp",
-                    "template_name": "GENERIC_RECTANGULAR_CONNECTOR",
+                    "used": False,
+                    "mode": "image_upload_approximated",
+                    "template_name": "VISUAL_GRAMMAR_PROXY",
                     "selection_reason": "Could not decode or analyze image.",
                     "preview_color": "grey",
                     "fallback_reason": f"decode_or_extract_failed:{exc!s}",
+                    "fallback_blocked": True,
                 },
-                "image_fallback_warning": "無法解析圖像，已回退通用白模。",
+                "image_fallback_warning": "Could not reliably convert selected image; fallback template was blocked.",
             }
         )
 
@@ -397,6 +482,8 @@ def build_params_from_uploaded_image(
     vision = extract_vision_analysis(src, (user_text or "")[:500], summary)
     (output_dir / "vision_report.json").write_text(json.dumps(vision, ensure_ascii=False, indent=2), encoding="utf-8")
     recipe = build_shape_recipe_from_visual_features(feats, vision, {})
+    consistency = _build_generation_consistency(feats, recipe, str(feats.get("source_image_sha256") or ""))
+    recipe["generation_consistency"] = consistency
     (output_dir / "visual_recipe.json").write_text(json.dumps(recipe, ensure_ascii=False, indent=2), encoding="utf-8")
 
     img_w = int(feats.get("width_px") or 1)
@@ -419,28 +506,32 @@ def build_params_from_uploaded_image(
     if weak:
         return base_params.model_copy(
             update={
-                "model_origin": "generic_mvp",
-                "template_name": "GENERIC_RECTANGULAR_CONNECTOR",
+                "status": "failed",
+                "error": f"insufficient_visual_cues:{fb_reason}",
+                "model_origin": "image_upload_approximated",
+                "template_name": "VISUAL_GRAMMAR_PROXY",
                 "uploaded_file_name": filename,
                 "appearance_confidence": "low",
                 "unknown_fields": merged_unknown,
                 "ai_extraction": _ai_skipped(),
                 "appearance_pipeline": {
-                    "used": True,
-                    "mode": "generic_mvp",
-                    "template_name": "GENERIC_RECTANGULAR_CONNECTOR",
+                    "used": False,
+                    "mode": "image_upload_approximated",
+                    "template_name": "VISUAL_GRAMMAR_PROXY",
                     "selection_reason": "Visual cues insufficient for connector interpretation.",
                     "preview_color": preview_color,
                     "image_features_file": "image_features.json",
                     "vision_report_file": "vision_report.json",
                     "visual_recipe_file": "visual_recipe.json",
                     "fallback_reason": fb_reason,
+                    "fallback_blocked": True,
                 },
                 "preview_style": {"base_color": preview_color},
                 "image_feature_summary": feats,
                 "vision_report_summary": vision,
                 "visual_recipe": recipe,
-                "image_fallback_warning": f"已回退通用白模。原因：{fb_reason}",
+                "generation_consistency": consistency,
+                "image_fallback_warning": f"Visual cues insufficient; fallback generic template blocked: {fb_reason}",
             }
         )
 
@@ -454,6 +545,8 @@ def build_params_from_uploaded_image(
             "template_name": "VISUAL_GRAMMAR_PROXY",
             "appearance_confidence": str(recipe.get("confidence") or "medium"),
             "preview_style": {"base_color": recipe.get("color") or preview_color},
+            "selected_image_sha256": str(feats.get("source_image_sha256") or ""),
+            "generation_consistency": consistency,
             "geometry_basis": "visual_shape_grammar",
             "manufacturing_accuracy": "visual_proxy_only",
             "visual_recipe": recipe,
@@ -468,18 +561,18 @@ def build_params_from_uploaded_image(
                 "image_features_file": "image_features.json",
                 "vision_report_file": "vision_report.json",
                 "visual_recipe_file": "visual_recipe.json",
+                "generation_consistency": consistency,
             },
             "disclaimer": _disclaimer_upload(),
             "warning": PROVISIONAL_WARNING + " " + _disclaimer_upload(),
             "ai_extraction": _ai_skipped(),
-            "notes": "Dimensions derived from visual proxy assumptions — confirm before manufacturing.",
+            "notes": "Dimensions derived from visual proxy assumptions; confirm before manufacturing.",
         }
     )
-
 
 def merge_image_search_fallback_notice(params: ConnectorCadParams, meta: dict[str, Any]) -> ConnectorCadParams:
     """Append warning when search API was not configured."""
     if meta.get("image_search", {}).get("status") != "not_configured":
         return params
-    note = " 未启用联网图片搜索（IMAGE_SEARCH_*），已回退到 AI / 系列模板 / 通用参数化流程。"
+    note = " Image search is not configured; falling back to the non-image-search generation flow."
     return params.model_copy(update={"warning": (params.warning or "") + note})

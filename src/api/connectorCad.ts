@@ -9,11 +9,24 @@ export type AiApiStatus = {
   api_key_set: boolean;
   model: string;
   key_preview: string;
+  missing?: string[];
+  error?: string;
+  error_type?: string;
 };
 
 export type AiTestResponse = {
   ok: boolean;
   extracted: Record<string, unknown>;
+  meta?: {
+    status?: string;
+    provider?: string;
+    model?: string;
+    configured?: boolean;
+    base_url_set?: boolean;
+    api_key_set?: boolean;
+    error?: string;
+    error_type?: string;
+  };
 };
 
 export type ConnectorJob = {

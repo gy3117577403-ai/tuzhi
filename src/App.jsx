@@ -132,7 +132,9 @@ export default function App() {
     try {
       const res = await postAiTest(sample);
       setAiTestFailed(!res.ok);
-      setAiTestMessage(res.ok ? 'AI 測試解析成功' : 'AI 測試解析失敗（仍可使用本地預設參數生成）');
+      const errorType = res.meta?.error_type || '';
+      const errText = res.meta?.error || errorType || '';
+      setAiTestMessage(res.ok ? 'AI 測試解析成功' : `AI 已配置检查失败：${errorType || 'unknown'}${errText ? `；${errText}` : ''}。不影响图片搜索生成流程。`);
     } catch (err) {
       setAiTestFailed(true);
       setAiTestMessage(err.message || 'AI 測試請求失敗');
@@ -369,6 +371,14 @@ export default function App() {
     setStatus('idle');
   };
 
+  const aiStatusLabel = !aiApiStatus
+    ? '讀取中…'
+    : aiTestFailed
+      ? (aiApiStatus.configured ? '已配置但测试失败' : '配置不完整')
+      : aiApiStatus.configured
+        ? '已配置'
+        : '配置不完整';
+
   return (
     <div className="app-shell">
       <aside className="rail" aria-label="主工具栏">
@@ -386,11 +396,10 @@ export default function App() {
           <StatusBadge status={status} />
         </div>
         <div className="top-actions">
-          <div className="ai-toolbar" title={aiApiStatus?.key_preview ? `Key 預覽：${aiApiStatus.key_preview}` : ''}>
+          <div className="ai-toolbar" title={aiApiStatus?.error_type || ''}>
             <Cpu size={14} aria-hidden />
             <span>
-              AI API：
-              {!aiApiStatus ? '讀取中…' : aiTestFailed ? '測試失敗' : aiApiStatus.configured ? '已配置' : '未配置'}
+              AI API：{aiStatusLabel}
             </span>
             {aiApiStatus?.configured && aiApiStatus.model ? (
               <span className="ai-model" title={aiApiStatus.model}>{aiApiStatus.model}</span>
@@ -1027,16 +1036,27 @@ function ImageSearchSourcePanel({ job }) {
   const selected = imageSearch.selected || context.rank?.selected || {};
   const search = context.search || {};
   const recipe = params.visual_recipe || {};
+  const features = params.image_feature_summary || {};
+  const consistency = params.generation_consistency || recipe.generation_consistency || {};
+  const downloadInfo = imageSearch.download || {};
   const imageUrl = selected.image_url || selected.thumbnail_url || '';
   const sourceUrl = selected.source_url || params.source_url || '';
   const recipeSummary = {
     color: recipe.color,
+    body_type: recipe.base_body?.type || recipe.base_body?.style,
     confidence: recipe.confidence,
     cavity_array: recipe.cavity_array,
     front_shroud: recipe.front_shroud,
     top_features: recipe.top_features,
     side_features: recipe.side_features,
   };
+  const unreliable = Boolean(
+    imageSearch.download_failed
+    || downloadInfo.decode_ok === false
+    || params.unsupported_visual_shape
+    || consistency.recipe_color_matches_image === false
+    || consistency.recipe_shape_matches_image === false,
+  );
   return (
     <>
       <div className="section-label">搜索图片来源</div>
@@ -1044,6 +1064,14 @@ function ImageSearchSourcePanel({ job }) {
         <div className="image-source-alert">
           该模型由搜索图片生成，仅为外观近似 CAD，不代表原厂 CAD，不可作为制造尺寸依据。
         </div>
+        {unreliable ? (
+          <div className="image-conversion-alert">
+            选中图片未能可靠转换为 CAD，系统不会使用旧模板冒充。请重新选择图片或上传更清晰图片。
+          </div>
+        ) : null}
+        {recipe.base_body?.type === 'cylindrical_connector' ? (
+          <div className="image-source-alert soft">圆形/圆柱连接器视觉近似模型。</div>
+        ) : null}
         {imageUrl ? (
           <img className="selected-image-preview" src={imageUrl} alt={selected.title || 'selected connector reference'} />
         ) : null}
@@ -1054,6 +1082,15 @@ function ImageSearchSourcePanel({ job }) {
         <AuditRow label="selection_mode" value={search.provider === 'manual_url' ? 'manual_url' : 'selected_candidate'} />
         <AuditRow label="provider" value={imageSearch.provider || search.provider || '未记录'} />
         <AuditRow label="status" value={imageSearch.status || search.status || '未记录'} />
+        <AuditRow label="selected_image_sha256" value={params.selected_image_sha256 || selected.selected_image_sha256 || selected.sha256 || '未记录'} mono />
+        <AuditRow label="downloaded_filename" value={selected.downloaded_filename || downloadInfo.filename || '未记录'} mono />
+        <AuditRow label="decode_ok" value={String(selected.decode_ok ?? downloadInfo.decode_ok ?? 'unknown')} />
+        <AuditRow label="detected dominant_color" value={features.dominant_color || '未记录'} />
+        <AuditRow label="detected body_shape" value={features.body_shape || '未记录'} />
+        <AuditRow label="recipe body type" value={recipe.base_body?.type || recipe.base_body?.style || '未记录'} />
+        <AuditRow label="recipe color" value={recipe.color || '未记录'} />
+        <AuditRow label="consistency color" value={String(consistency.recipe_color_matches_image ?? 'unknown')} />
+        <AuditRow label="consistency shape" value={String(consistency.recipe_shape_matches_image ?? 'unknown')} />
         <AuditRow label="generation_risk_accepted" value={String(Boolean(imageSearch.generation_risk_accepted))} />
         <AuditRow label="accepted_risk_code" value={imageSearch.accepted_risk_code || '未记录'} />
         <AuditRow label="selected_evidence_level" value={imageSearch.selected_evidence_level || '未记录'} />
@@ -1069,6 +1106,8 @@ function ImageSearchSourcePanel({ job }) {
         <pre className="ai-json-preview">{JSON.stringify(imageSearch.selected_match_evidence || {}, null, 2)}</pre>
         <div className="section-label subtle">generation_risk</div>
         <pre className="ai-json-preview">{JSON.stringify(imageSearch.generation_risk || {}, null, 2)}</pre>
+        <div className="section-label subtle">generation_consistency</div>
+        <pre className="ai-json-preview">{JSON.stringify(consistency || {}, null, 2)}</pre>
         <div className="section-label subtle">visual_recipe 摘要</div>
         <pre className="ai-json-preview">{JSON.stringify(recipeSummary, null, 2)}</pre>
       </div>

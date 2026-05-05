@@ -156,11 +156,46 @@ def _ai_extraction_skipped_block() -> dict[str, Any]:
     }
 
 
-@app.get("/api/ai/status")
-def ai_api_status() -> dict[str, Any]:
+def _classify_ai_error(error: str, configured: bool, base_url_set: bool, api_key_set: bool) -> str:
+    text = (error or "").lower()
+    if not configured:
+        if not base_url_set:
+            return "configuration_missing_base_url"
+        if not api_key_set:
+            return "configuration_missing_api_key"
+        return "configuration_incomplete"
+    if "401" in text or "unauthorized" in text:
+        return "auth_401"
+    if "403" in text or "forbidden" in text:
+        return "auth_403"
+    if "404" in text or "model" in text and "not" in text:
+        return "model_or_endpoint_not_found"
+    if "ssl" in text or "certificate" in text:
+        return "ssl_error"
+    if "timeout" in text or "timed out" in text:
+        return "network_timeout"
+    if "connection" in text or "network" in text:
+        return "network_error"
+    if "quota" in text or "rate" in text or "429" in text:
+        return "quota_or_rate_limit"
+    if "format" in text or "schema" in text or "json" in text:
+        return "request_or_response_format"
+    return "unknown"
+
+
+def _ai_config_status_payload(error: str = "") -> dict[str, Any]:
     env = get_ai_env()
     key = env.get("api_key", "")
     configured = is_ai_configured()
+    missing = [
+        name
+        for name, ok in (
+            ("CONNECTOR_AI_API_BASE_URL", bool(env.get("base_url"))),
+            ("CONNECTOR_AI_API_KEY", bool(key)),
+            ("CONNECTOR_AI_MODEL", bool(env.get("model"))),
+        )
+        if not ok
+    ]
     return {
         "configured": configured,
         "provider": env.get("provider", "openai_compatible"),
@@ -168,13 +203,35 @@ def ai_api_status() -> dict[str, Any]:
         "api_key_set": bool(key),
         "model": env.get("model", "") or "",
         "key_preview": preview_api_key(key) if key else "",
+        "missing": missing,
+        "error": error,
+        "error_type": _classify_ai_error(error, configured, bool(env.get("base_url")), bool(key)) if error or not configured else "",
     }
+
+
+@app.get("/api/ai/status")
+def ai_api_status() -> dict[str, Any]:
+    return _ai_config_status_payload()
 
 
 @app.post("/api/ai/test")
 def ai_api_test(payload: AiTestRequest) -> dict[str, Any]:
     extracted, meta = extract_connector_params_with_ai_detailed((payload.text or "").strip())
-    return {"ok": meta.get("status") == "success", "extracted": extracted}
+    status = _ai_config_status_payload(str(meta.get("error") or ""))
+    return {
+        "ok": meta.get("status") == "success",
+        "extracted": extracted,
+        "meta": {
+            "status": meta.get("status"),
+            "provider": status["provider"],
+            "model": status["model"],
+            "configured": status["configured"],
+            "base_url_set": status["base_url_set"],
+            "api_key_set": status["api_key_set"],
+            "error": meta.get("error") or "",
+            "error_type": status["error_type"],
+        },
+    }
 
 
 @app.post("/api/connector-cad/jobs")
@@ -238,6 +295,9 @@ async def create_job(request: Request) -> dict[str, Any]:
         params = params.model_copy(update={"ai_extraction": _ai_extraction_skipped_block()})
 
     params = apply_confirmed_params(params, incoming_params)
+    if params.status == "failed":
+        save_params(job_id, params)
+        return job_payload(job_id, params)
     try:
         generated_files, params = export_job_files(params, output_dir)
         params = finalize_source_audit(job_id, output_dir, params, {**cad_source, "official_cad_downloaded": False}, generated_files)
@@ -457,8 +517,39 @@ def create_visual_search_job(
     if tried is not None:
         params = tried
     else:
-        params = configure_text_appearance_pipeline(params, query)
-        params = merge_image_search_fallback_notice(params, search_meta)
+        error = search_meta.get("error") or "selected_image_visual_pipeline_failed"
+        params = mark_failed(
+            params.model_copy(
+                update={
+                    "model_origin": "image_search_approximated",
+                    "template_name": "VISUAL_GRAMMAR_PROXY",
+                    "geometry_basis": "visual_shape_grammar",
+                    "manufacturing_accuracy": "visual_proxy_only",
+                    "image_search": {
+                        "query": query,
+                        "provider": (search_pack or {}).get("provider"),
+                        "status": (search_pack or {}).get("status"),
+                        "selected": selected_image,
+                        "selected_image_file": "selected_image.json",
+                        "download_failed": True,
+                        "download": search_meta.get("download") or {},
+                    },
+                    "appearance_pipeline": {
+                        "used": False,
+                        "mode": "image_search_approximated",
+                        "template_name": "VISUAL_GRAMMAR_PROXY",
+                        "selection_reason": "Selected image could not be decoded/analyzed; refused fallback template.",
+                        "fallback_blocked": True,
+                    },
+                    "preview_style": {"base_color": "grey"},
+                    "warning": "选中图片未能可靠转换为 CAD，系统不会使用旧模板冒充。请重新选择图片或上传更清晰图片。",
+                }
+            ),
+            str(error),
+        )
+    if params.status == "failed":
+        save_params(job_id, params)
+        return job_payload(job_id, params)
     try:
         generated_files, params = export_job_files(params, output_dir)
         params = finalize_source_audit(job_id, output_dir, params, {**cad_source, "official_cad_downloaded": False}, generated_files)

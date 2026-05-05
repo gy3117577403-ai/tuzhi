@@ -51,8 +51,8 @@ def save_params(job_id: str, params: ConnectorCadParams) -> None:
     path.write_text(json.dumps(params.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def file_path(job_id: str, filename: str) -> Path:
-    allowed = {
+JOB_ARTIFACT_FILENAMES = frozenset(
+    {
         "model.step",
         "model.stl",
         "drawing.dxf",
@@ -63,7 +63,22 @@ def file_path(job_id: str, filename: str) -> Path:
         "image_search_results.json",
         "selected_image.json",
         "visual_recipe.json",
+        "connector_front_view.dxf",
+        "connector_rear_view.dxf",
+        "connector_top_view.dxf",
+        "connector_side_view.dxf",
+        "connector_insertion_direction.dxf",
+        "connector_flat_views.svg",
+        "connector_2d_recipe.json",
+        "connector_view_classification.json",
+        "terminal_insertion.json",
+        "structure_completeness_report.json",
     }
+)
+
+
+def file_path(job_id: str, filename: str) -> Path:
+    allowed = JOB_ARTIFACT_FILENAMES
     if filename not in allowed:
         raise HTTPException(status_code=404, detail="Unsupported file")
     path = job_dir(job_id) / filename

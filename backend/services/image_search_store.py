@@ -22,6 +22,9 @@ def create_search_record(
     warnings: list[str],
     expanded_query: str = "",
     ranker: dict[str, Any] | None = None,
+    refined_searches: list[dict[str, Any]] | None = None,
+    exact_match_found: bool | None = None,
+    match_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     search_id = uuid.uuid4().hex
     normalized = [_candidate_payload(item, index + 1, search_id) for index, item in enumerate(results)]
@@ -34,6 +37,9 @@ def create_search_record(
         "results": normalized,
         "warnings": warnings,
         "ranker": ranker or {"enabled": True, "strategy": "part_number_domain_image_quality"},
+        "refined_searches": refined_searches or [],
+        "exact_match_found": bool(exact_match_found),
+        "match_summary": match_summary or _match_summary(normalized),
         "created_at": _now(),
     }
     save_search_results_json(record)
@@ -81,6 +87,21 @@ def _candidate_payload(item: dict[str, Any], rank: int, search_id: str) -> dict[
         "provider": item.get("provider") or "",
         "provider_raw": item.get("provider_raw") or {},
         "image_probe_ok": item.get("image_probe_ok"),
+        "search_round": item.get("search_round") or "initial",
+    }
+
+
+def _match_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = {"exact": 0, "weak": 0, "near_miss": 0, "none": 0}
+    for item in results:
+        level = str((item.get("part_match") or {}).get("match_level") or "none")
+        if level not in counts:
+            level = "none"
+        counts[level] += 1
+    return {
+        **counts,
+        "has_exact": counts["exact"] > 0,
+        "requires_part_mismatch_confirmation": counts["exact"] == 0 and counts["near_miss"] > 0,
     }
 
 

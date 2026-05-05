@@ -126,6 +126,66 @@ def run_mock_selection(client: httpx.Client) -> dict:
     return {"search": search_data, "job": job, "params": params}
 
 
+def run_current_provider_part_risk(client: httpx.Client) -> dict:
+    print("=== A2. current provider part-match risk ===")
+    response = client.post(
+        f"{BASE}/api/connector-cad/image-search",
+        json={"query": "1-968970-1 connector", "max_results": 8},
+    )
+    response.raise_for_status()
+    search_data = response.json()
+    results = search_data.get("results") or []
+    require(search_data.get("status") in {"success", "not_configured", "failed"}, "unexpected search status")
+    print("provider:", search_data.get("provider"))
+    print("status:", search_data.get("status"))
+    print("match_summary:", search_data.get("match_summary"))
+    print("refined_searches:", len(search_data.get("refined_searches") or []))
+    if search_data.get("status") != "success" or not results:
+        print("current provider did not return candidates; skipping risk gate generation check")
+        return {"search": search_data, "job": None, "params": {}}
+
+    print_candidate_quality(results)
+    exact = next((item for item in results if (item.get("part_match") or {}).get("match_level") == "exact"), None)
+    near_candidate = next((item for item in results if (item.get("part_match") or {}).get("match_level") == "near_miss"), None)
+    selected = exact or results[0]
+    selected_level = (selected.get("part_match") or {}).get("match_level")
+    print("selected_match_level:", selected_level)
+
+    if near_candidate:
+        blocked = client.post(
+            f"{BASE}/api/connector-cad/jobs/from-selected-image",
+            json={"search_id": search_data["search_id"], "candidate_id": near_candidate["id"], "query": "1-968970-1 connector"},
+        )
+        require(blocked.status_code in {400, 409}, f"near_miss was not blocked, status={blocked.status_code}")
+        blocked_data = blocked.json()
+        detail = blocked_data.get("detail") or {}
+        require(detail.get("status") == "requires_confirmation", "near_miss block did not require confirmation")
+        print("near_miss_blocked:", True)
+
+    job_response = client.post(
+        f"{BASE}/api/connector-cad/jobs/from-selected-image",
+        json={
+            "search_id": search_data["search_id"],
+            "candidate_id": selected["id"],
+            "query": "1-968970-1 connector",
+            "accept_part_mismatch_risk": selected_level == "near_miss",
+        },
+    )
+    job_response.raise_for_status()
+    job = job_response.json()
+    files = job.get("files") or {}
+    params = client.get(f"{BASE}{files.get('params_json')}").json()
+    image_search = params.get("image_search") or {}
+    require(params.get("model_origin") == "image_search_approximated", "current-provider job did not use image_search_approximated")
+    require(bool(image_search.get("selected_part_match")), "params.json missing image_search.selected_part_match")
+    if selected_level == "near_miss":
+        require(image_search.get("part_mismatch_risk_accepted") is True, "near_miss acceptance was not recorded")
+    print("job_id:", job.get("job_id"))
+    print("model_origin:", params.get("model_origin"))
+    print("part_mismatch_risk_accepted:", image_search.get("part_mismatch_risk_accepted"))
+    return {"search": search_data, "job": job, "params": params}
+
+
 def run_not_configured(client: httpx.Client) -> None:
     print("=== B. not_configured compatibility ===")
     response = client.post(
@@ -156,6 +216,7 @@ def run_manual_url(client: httpx.Client) -> dict:
     params = client.get(f"{BASE}{files.get('params_json')}").json()
     downloadable = check_downloads(client, files, ["selected_image", "visual_recipe", "model_step", "model_stl", "drawing_dxf"])
     require(params.get("model_origin") == "image_search_approximated", "manual-url job did not use image_search_approximated")
+    require((params.get("image_search") or {}).get("manual_image_url_unverified") is True, "manual URL unverified flag missing")
     require(downloadable, "not all manual-url files are downloadable")
     print("job_id:", job.get("job_id"))
     print("model_origin:", params.get("model_origin"))
@@ -170,10 +231,13 @@ def main() -> int:
     try:
         with httpx.Client(timeout=300.0, follow_redirects=True) as client:
             mock = run_mock_selection(client)
+            current_provider = run_current_provider_part_risk(client)
             run_not_configured(client)
             manual = run_manual_url(client)
         print("=== acceptance_image_search_selection_test PASS ===")
         print("mock_job_id:", mock["job"].get("job_id"))
+        if current_provider.get("job"):
+            print("current_provider_job_id:", current_provider["job"].get("job_id"))
         print("manual_job_id:", manual["job"].get("job_id"))
         return 0
     except Exception as exc:

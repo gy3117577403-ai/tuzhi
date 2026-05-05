@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import httpx
 from dotenv import load_dotenv
 
-from services.search_result_ranker import rank_connector_image_results
+from services.search_result_ranker import extract_part_numbers, rank_connector_image_results
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(BACKEND_ROOT / ".env", override=True)
@@ -34,14 +34,8 @@ def search_connector_images(query: str, max_results: int | None = None, provider
     if provider == "manual":
         provider = "manual_url"
 
-    if provider == "mock":
-        pack = _mock_search(original_query, expanded, limit)
-    elif provider == "serpapi":
-        pack = _serpapi_search(original_query, expanded, limit)
-    elif provider == "bing":
-        pack = _bing_search(original_query, expanded, limit)
-    elif provider == "generic_json":
-        pack = _generic_json_search(original_query, expanded, limit)
+    if provider in {"mock", "serpapi", "bing", "generic_json"}:
+        pack = _run_provider_search(provider, original_query, expanded, limit)
     elif provider == "manual_url":
         pack = _pack(
             original_query,
@@ -55,12 +49,58 @@ def search_connector_images(query: str, max_results: int | None = None, provider
         pack = _pack(original_query, expanded, provider, "not_configured", [], [f"Unknown IMAGE_SEARCH_PROVIDER={provider!r}."])
 
     if pack.get("status") == "success" and pack.get("results"):
+        for item in pack.get("results") or []:
+            item.setdefault("search_round", "initial")
         ranked = rank_connector_image_results(expanded, pack.get("results") or [], max_results=limit)
+        candidates = ranked.get("candidates") or []
+        refined_searches: list[dict[str, Any]] = []
+        if not _has_exact(candidates) and provider in {"serpapi", "bing", "generic_json"}:
+            merged = _dedupe_results(pack.get("results") or [])
+            for round_name, refined_query in _refinement_queries(original_query):
+                refined = _run_provider_search(provider, original_query, refined_query, limit)
+                refined_items = refined.get("results") or []
+                for item in refined_items:
+                    item["search_round"] = round_name
+                refined_searches.append(
+                    {
+                        "query": refined_query,
+                        "status": refined.get("status") or "failed",
+                        "results_count": len(refined_items),
+                    }
+                )
+                merged = _dedupe_results([*merged, *refined_items])
+                reranked = rank_connector_image_results(expanded, merged, max_results=limit, enable_probing=False)
+                if _has_exact(reranked.get("candidates") or []):
+                    ranked = reranked
+                    break
+                ranked = reranked
         pack["results"] = ranked.get("candidates") or []
         pack["ranker"] = ranked.get("ranker") or {"enabled": True, "strategy": "part_number_domain_image_quality"}
+        pack["refined_searches"] = refined_searches
+        pack["exact_match_found"] = _has_exact(pack["results"])
+        pack["match_summary"] = _match_summary(pack["results"])
+        if not pack["exact_match_found"]:
+            pack.setdefault("warnings", []).append(
+                "No exact part-number image match found. Near-miss candidates require explicit confirmation."
+            )
     else:
         pack["ranker"] = {"enabled": True, "strategy": "part_number_domain_image_quality"}
+        pack["refined_searches"] = []
+        pack["exact_match_found"] = False
+        pack["match_summary"] = _match_summary([])
     return pack
+
+
+def _run_provider_search(provider: str, original_query: str, expanded_query: str, max_results: int) -> dict[str, Any]:
+    if provider == "mock":
+        return _mock_search(original_query, expanded_query, max_results)
+    if provider == "serpapi":
+        return _serpapi_search(original_query, expanded_query, max_results)
+    if provider == "bing":
+        return _bing_search(original_query, expanded_query, max_results)
+    if provider == "generic_json":
+        return _generic_json_search(original_query, expanded_query, max_results)
+    return _pack(original_query, expanded_query, provider, "not_configured", [], [f"Unsupported image search provider={provider!r}."])
 
 
 def expand_connector_search_query(user_query: str) -> str:
@@ -72,6 +112,48 @@ def expand_connector_search_query(user_query: str) -> str:
     if not any(term in lower for term in CONNECTOR_TERMS) and "terminal" not in lower:
         additions = ["connector", "housing"]
     return " ".join([q, *additions]).strip()
+
+
+def _refinement_queries(original_query: str) -> list[tuple[str, str]]:
+    part = (extract_part_numbers(original_query) or [original_query.strip()])[0]
+    if not part:
+        return []
+    return [
+        ("exact_quote_connector", f'"{part}" connector'),
+        ("exact_quote_housing", f'"{part}" housing'),
+        ("exact_quote_manufacturer", f'"{part}" TE Connectivity'),
+        ("exact_quote_image", f'"{part}" image'),
+    ]
+
+
+def _dedupe_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in results:
+        key = "|".join([str(item.get("image_url") or item.get("thumbnail_url") or ""), str(item.get("source_url") or "")]).lower()
+        if not key.strip("|") or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _has_exact(results: list[dict[str, Any]]) -> bool:
+    return any(((item.get("part_match") or {}).get("match_level") == "exact") for item in results)
+
+
+def _match_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = {"exact": 0, "weak": 0, "near_miss": 0, "none": 0}
+    for item in results:
+        level = str((item.get("part_match") or {}).get("match_level") or "none")
+        if level not in counts:
+            level = "none"
+        counts[level] += 1
+    return {
+        **counts,
+        "has_exact": counts["exact"] > 0,
+        "requires_part_mismatch_confirmation": counts["exact"] == 0 and counts["near_miss"] > 0,
+    }
 
 
 def _mock_search(original_query: str, expanded_query: str, max_results: int) -> dict[str, Any]:
@@ -271,6 +353,7 @@ def _candidate(
         "rank_reason": "",
         "provider": provider,
         "provider_raw": provider_raw,
+        "search_round": "",
     }
 
 
@@ -283,6 +366,9 @@ def _pack(query: str, expanded_query: str, provider: str, status: str, results: 
         "results": results,
         "warnings": warnings,
         "ranker": {"enabled": True, "strategy": "part_number_domain_image_quality"},
+        "refined_searches": [],
+        "exact_match_found": False,
+        "match_summary": _match_summary(results),
     }
 
 

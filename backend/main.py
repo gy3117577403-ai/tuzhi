@@ -84,6 +84,7 @@ class SelectedImageJobRequest(BaseModel):
     search_id: str
     candidate_id: str
     query: str | None = None
+    accept_part_mismatch_risk: bool = False
 
 
 class ManualImageUrlJobRequest(BaseModel):
@@ -274,6 +275,9 @@ def create_connector_image_search(payload: ImageSearchRequest) -> dict[str, Any]
         warnings=pack.get("warnings") or [],
         expanded_query=pack.get("expanded_query") or pack.get("query") or query,
         ranker=pack.get("ranker") or {},
+        refined_searches=pack.get("refined_searches") or [],
+        exact_match_found=pack.get("exact_match_found"),
+        match_summary=pack.get("match_summary") or {},
     )
 
 
@@ -285,12 +289,24 @@ def get_connector_image_search(search_id: str) -> dict[str, Any]:
 @app.post("/api/connector-cad/jobs/from-selected-image")
 def create_job_from_selected_image(payload: SelectedImageJobRequest) -> dict[str, Any]:
     record, candidate = resolve_candidate(payload.search_id, payload.candidate_id)
+    part_match = candidate.get("part_match") or {}
+    if part_match.get("match_level") == "near_miss" and not payload.accept_part_mismatch_risk:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "status": "requires_confirmation",
+                "error": "Selected image appears to match a similar but different part number.",
+                "part_match": part_match,
+                "message": "Set accept_part_mismatch_risk=true to continue.",
+            },
+        )
     query = (payload.query or record.get("query") or candidate.get("title") or "").strip()
     return create_visual_search_job(
         query=query,
         selected_image_url=str(candidate.get("image_url") or candidate.get("thumbnail_url") or ""),
         selected_image=candidate,
         search_pack=record,
+        part_mismatch_risk_accepted=bool(payload.accept_part_mismatch_risk),
     )
 
 
@@ -311,6 +327,12 @@ def create_job_from_manual_image_url(payload: ManualImageUrlJobRequest) -> dict[
         "source_url": payload.source_url or image_url,
         "domain": "",
         "rank_reason": "User supplied manual image URL.",
+        "part_match": {
+            "match_level": "none",
+            "query_part_number": query,
+            "matched_part_number": "",
+            "reason": "Manual image URL is not verified against the query part number.",
+        },
     }
     search_pack = {
         "search_id": None,
@@ -319,6 +341,15 @@ def create_job_from_manual_image_url(payload: ManualImageUrlJobRequest) -> dict[
         "status": "manual",
         "results": [selected],
         "warnings": [],
+        "manual_image_url_unverified": True,
+        "match_summary": {
+            "exact": 0,
+            "weak": 0,
+            "near_miss": 0,
+            "none": 1,
+            "has_exact": False,
+            "requires_part_mismatch_confirmation": False,
+        },
     }
     return create_visual_search_job(query=query, selected_image_url=image_url, selected_image=selected, search_pack=search_pack)
 
@@ -367,6 +398,7 @@ def create_visual_search_job(
     selected_image_url: str,
     selected_image: dict[str, Any],
     search_pack: dict[str, Any],
+    part_mismatch_risk_accepted: bool = False,
 ) -> dict[str, Any]:
     if not selected_image_url:
         raise HTTPException(status_code=400, detail="selected image URL is empty")
@@ -382,6 +414,7 @@ def create_visual_search_job(
         selected_image_url=selected_image_url,
         selected_image=selected_image,
         search_pack_override=search_pack,
+        part_mismatch_risk_accepted=part_mismatch_risk_accepted,
     )
     if tried is not None:
         params = tried

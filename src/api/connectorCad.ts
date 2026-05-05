@@ -52,6 +52,7 @@ export type ConnectorImageSearchCandidate = {
   provider?: string;
   width?: number;
   height?: number;
+  search_round?: string;
   part_match?: {
     match_level?: 'exact' | 'weak' | 'near_miss' | 'none' | string;
     query_part_number?: string;
@@ -70,6 +71,16 @@ export type ConnectorImageSearch = {
   status: 'success' | 'not_configured' | 'failed' | 'manual' | string;
   results: ConnectorImageSearchCandidate[];
   warnings: string[];
+  refined_searches?: Array<{ query: string; status: string; results_count: number }>;
+  exact_match_found?: boolean;
+  match_summary?: {
+    exact: number;
+    weak: number;
+    near_miss: number;
+    none: number;
+    has_exact: boolean;
+    requires_part_mismatch_confirmation: boolean;
+  };
   created_at?: string;
 };
 
@@ -92,7 +103,12 @@ async function parseResponse(response: Response) {
   const text = await response.text();
   try {
     const parsed = JSON.parse(text);
-    return Promise.reject(new Error(parsed.detail || text || `HTTP ${response.status}`));
+    const detail = parsed.detail;
+    const message = typeof detail === 'string' ? detail : detail?.message || detail?.error || text || `HTTP ${response.status}`;
+    const error = new Error(message) as Error & { detail?: unknown; status?: number };
+    error.detail = detail;
+    error.status = response.status;
+    return Promise.reject(error);
   } catch {
     throw new Error(text || `HTTP ${response.status}`);
   }
@@ -129,11 +145,17 @@ export async function createJobFromSelectedImage(
   searchId: string,
   candidateId: string,
   query?: string,
+  acceptPartMismatchRisk = false,
 ): Promise<ConnectorJob> {
   const response = await fetch(`${API_BASE}/api/connector-cad/jobs/from-selected-image`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ search_id: searchId, candidate_id: candidateId, query }),
+    body: JSON.stringify({
+      search_id: searchId,
+      candidate_id: candidateId,
+      query,
+      accept_part_mismatch_risk: acceptPartMismatchRisk,
+    }),
   });
   return parseResponse(response);
 }

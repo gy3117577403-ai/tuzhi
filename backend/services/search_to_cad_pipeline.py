@@ -97,6 +97,7 @@ def generate_cad_from_search(
     selected_image_url: str | None = None,
     selected_image: dict[str, Any] | None = None,
     search_pack_override: dict[str, Any] | None = None,
+    part_mismatch_risk_accepted: bool = False,
 ) -> tuple[ConnectorCadParams | None, dict[str, Any]]:
     """
     Full pipeline: search → rank → download → features → recipe-ready params.
@@ -107,6 +108,7 @@ def generate_cad_from_search(
 
     img_path = output_dir / "reference_selected.png"
     search_pack: dict[str, Any] = {}
+    selected_part_match: dict[str, Any] = {}
 
     if selected_image_url:
         search_pack = search_pack_override or {
@@ -119,7 +121,11 @@ def generate_cad_from_search(
         (output_dir / "image_search_results.json").write_text(
             json.dumps(search_pack, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        dl = download_image_to_job(selected_image_url.strip(), output_dir, "reference_selected")
+        primary_url = selected_image_url.strip()
+        dl = download_image_to_job(primary_url, output_dir, "reference_selected")
+        fallback_url = str((selected_image or {}).get("thumbnail_url") or "").strip()
+        if not dl.get("ok") and fallback_url and fallback_url != primary_url:
+            dl = download_image_to_job(fallback_url, output_dir, "reference_selected")
         if not dl.get("ok"):
             meta["error"] = dl.get("error") or "Failed to download selected_image_url"
             return None, meta
@@ -132,6 +138,7 @@ def generate_cad_from_search(
             "domain": "",
             "rank": 1,
         }
+        selected_part_match = selected.get("part_match") or {}
         rank_summary = {
             "selected": selected,
             "candidates": [selected],
@@ -161,6 +168,10 @@ def generate_cad_from_search(
         sel = ranked.get("selected")
         if not sel or not sel.get("image_url"):
             return None, {**meta, "rank": ranked}
+        if (sel.get("part_match") or {}).get("match_level") == "near_miss":
+            meta["image_search"]["requires_part_mismatch_confirmation"] = True
+            meta["image_search"]["selected_part_match"] = sel.get("part_match") or {}
+            return None, {**meta, "rank": ranked}
 
         img_url = str(sel.get("image_url") or "").strip()
         dl = download_image_to_job(img_url, output_dir, "reference_selected")
@@ -174,6 +185,7 @@ def generate_cad_from_search(
         )
         rank_summary = ranked
         selected = sel
+        selected_part_match = selected.get("part_match") or {}
 
     feats = extract_image_features(img_path)
     (output_dir / "image_features.json").write_text(
@@ -218,6 +230,9 @@ def generate_cad_from_search(
                 "provider": search_pack.get("provider"),
                 "status": search_pack.get("status"),
                 "selected": selected,
+                "selected_part_match": selected_part_match,
+                "part_mismatch_risk_accepted": bool(part_mismatch_risk_accepted),
+                "manual_image_url_unverified": bool(search_pack.get("manual_image_url_unverified")),
                 "reference_image_file": img_path.name,
                 "results_file": "image_search_results.json",
                 "selected_image_file": "selected_image.json",

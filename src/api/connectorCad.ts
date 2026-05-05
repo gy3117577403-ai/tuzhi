@@ -41,6 +41,12 @@ export type ConnectorJob = {
     flat_view_classification_json?: string;
     flat_terminal_insertion_json?: string;
     flat_structure_report_json?: string;
+    sop_wi_draft_json?: string;
+    sop_wi_draft_html?: string;
+    sop_wi_summary_md?: string;
+    sop_wi_confirmation_checklist?: string;
+    sop_wi_assets_manifest?: string;
+    sop_wi_draft_pdf?: string;
   };
   source_manifest_url?: string;
   source_domain?: Record<string, any>;
@@ -220,6 +226,13 @@ export async function createFileConnectorJob(inputType: 'drawing' | 'photo', fil
 
 export async function getConnectorJob(jobId: string): Promise<ConnectorJob> {
   const response = await fetch(`${API_BASE}/api/connector-cad/jobs/${jobId}`);
+  return parseResponse(response);
+}
+
+export async function generateSopWiDraft(jobId: string): Promise<{ job_id: string; status: string; files: Record<string, string> }> {
+  const response = await fetch(`${API_BASE}/api/connector-cad/jobs/${jobId}/sop-wi/generate`, {
+    method: 'POST',
+  });
   return parseResponse(response);
 }
 

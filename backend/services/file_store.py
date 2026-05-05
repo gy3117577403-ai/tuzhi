@@ -73,6 +73,12 @@ JOB_ARTIFACT_FILENAMES = frozenset(
         "connector_view_classification.json",
         "terminal_insertion.json",
         "structure_completeness_report.json",
+        "sop_wi_draft.json",
+        "sop_wi_draft.html",
+        "sop_wi_summary.md",
+        "engineering_confirmation_checklist.json",
+        "sop_wi_assets_manifest.json",
+        "sop_wi_draft.pdf",
     }
 )
 

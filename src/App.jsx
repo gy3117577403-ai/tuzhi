@@ -31,6 +31,7 @@ import {
   downloadRegistryAuditReport,
   exportCadRegistry,
   fileUrl,
+  generateSopWiDraft,
   getAiApiStatus,
   getCadRegistryCache,
   getCadRegistryItemHistory,
@@ -96,6 +97,7 @@ export default function App() {
   const [selectedCandidateId, setSelectedCandidateId] = useState('');
   const [manualImageUrl, setManualImageUrl] = useState('');
   const [manualSourceUrl, setManualSourceUrl] = useState('');
+  const [sopWiBusy, setSopWiBusy] = useState(false);
 
   const canGenerate = activeTab === 'text' ? inputText.trim().length > 0 : Boolean(file);
   const isBusy = status === 'uploading' || status === 'generating';
@@ -262,6 +264,22 @@ export default function App() {
     } catch (err) {
       setStatus('failed');
       setError(err.message || '重新生成失败');
+    }
+  };
+
+  const handleGenerateSopWi = async () => {
+    if (!job?.job_id || sopWiBusy) return;
+    setError('');
+    setSopWiBusy(true);
+    try {
+      await generateSopWiDraft(job.job_id);
+      const refreshed = await pollConnectorJob(job.job_id, 2);
+      setJob(refreshed);
+      setStatus(refreshed.status === 'failed' ? 'failed' : refreshed.status);
+    } catch (err) {
+      setError(err.message || 'SOP/WI 草稿生成失败');
+    } finally {
+      setSopWiBusy(false);
     }
   };
 
@@ -440,6 +458,7 @@ export default function App() {
             <AppearanceDetailPanel job={job} />
             <AiExtractionPanel job={job} />
             <AuditPanel job={job} />
+            <SopWiPanel job={job} isBusy={sopWiBusy} onGenerate={handleGenerateSopWi} />
             <StatusPanel status={status} warning={job.warning || job.params?.warning} />
             {status === 'completed' && <SuccessMessage job={job} />}
             {status === 'failed' && error && <ErrorMessage error={error} />}
@@ -1625,6 +1644,57 @@ function FlatCadPanel({ job }) {
   );
 }
 
+function SopWiPanel({ job, isBusy, onGenerate }) {
+  const sop = job.params?.sop_wi;
+  const summary = sop?.checklist_summary || {};
+  if (!job.params?.flat_cad?.enabled) return null;
+  const hasDraft = Boolean(sop?.enabled && sop.status !== 'failed');
+  return (
+    <div className="sop-wi-panel">
+      <div className="sop-wi-head">
+        <div>
+          <strong>SOP/WI 草稿与工程确认</strong>
+          <span>该文件为 SOP/WI 草稿，必须经工程、工艺、品质确认后才能下发车间。</span>
+        </div>
+        {!hasDraft ? (
+          <button className="small-action" disabled={isBusy} onClick={onGenerate}>
+            {isBusy ? <Loader2 className="spin" size={14} /> : <FileText size={14} />}
+            <span>生成 SOP/WI 草稿</span>
+          </button>
+        ) : null}
+      </div>
+      {hasDraft ? (
+        <>
+          <div className="sop-wi-meta">
+            <FlatInfo label="sop_wi.status" value={sop.status} />
+            <FlatInfo label="readiness.status" value={sop.readiness?.status} tone="caution" />
+            <FlatInfo label="can_release_to_shopfloor" value={String(sop.readiness?.can_release_to_shopfloor ?? false)} tone="insufficient" />
+            <FlatInfo label="manual_confirmation_required" value={String(sop.readiness?.manual_confirmation_required ?? true)} tone="caution" />
+            <FlatInfo label="required_count" value={summary.required_count ?? 0} />
+            <FlatInfo label="pending_count" value={summary.pending_count ?? 0} tone="caution" />
+            <FlatInfo label="high_risk_count" value={summary.high_risk_count ?? 0} tone="caution" />
+          </div>
+          {sop.warnings?.length ? (
+            <ul className="sop-wi-warnings">
+              {sop.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+            </ul>
+          ) : null}
+          <div className="sop-wi-downloads">
+            <DownloadItem job={job} fileKey="sop_wi_draft_html" label="SOP/WI HTML" icon="code" />
+            <DownloadItem job={job} fileKey="sop_wi_draft_json" label="SOP/WI JSON" icon="code" />
+            <DownloadItem job={job} fileKey="sop_wi_summary_md" label="Summary Markdown" icon="code" />
+            <DownloadItem job={job} fileKey="sop_wi_confirmation_checklist" label="工程确认清单 JSON" icon="code" />
+            <DownloadItem job={job} fileKey="sop_wi_assets_manifest" label="资产清单 JSON" icon="code" />
+            <DownloadItem job={job} fileKey="sop_wi_draft_pdf" label="SOP/WI PDF" />
+          </div>
+        </>
+      ) : (
+        <div className="sop-wi-empty">当前 job 尚未生成 SOP/WI 草稿；可用现有 flat CAD 结果补生成。</div>
+      )}
+    </div>
+  );
+}
+
 function DownloadPanel({ job }) {
   const groups = [
     {
@@ -1665,6 +1735,17 @@ function DownloadPanel({ job }) {
         ['flat_view_classification_json', 'connector_view_classification.json', 'code'],
         ['flat_terminal_insertion_json', 'terminal_insertion.json', 'code'],
         ['flat_structure_report_json', 'structure_completeness_report.json', 'code'],
+      ],
+    },
+    {
+      title: 'E. SOP/WI 草稿包',
+      items: [
+        ['sop_wi_draft_html', 'sop_wi_draft.html', 'code'],
+        ['sop_wi_draft_json', 'sop_wi_draft.json', 'code'],
+        ['sop_wi_summary_md', 'sop_wi_summary.md', 'code'],
+        ['sop_wi_confirmation_checklist', 'engineering_confirmation_checklist.json', 'code'],
+        ['sop_wi_assets_manifest', 'sop_wi_assets_manifest.json', 'code'],
+        ['sop_wi_draft_pdf', 'sop_wi_draft.pdf'],
       ],
     },
   ];

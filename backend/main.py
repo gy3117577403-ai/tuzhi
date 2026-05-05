@@ -63,6 +63,7 @@ from services.search_to_cad_pipeline import (
 )
 from services.search_result_ranker import assess_candidate_generation_risk
 from services.source_audit import create_source_manifest, augment_params_json, summarize_manifest
+from services.sop_wi_exporter import export_sop_wi_package
 from services.registry_history import get_registry_item_history, verify_registry_history_signatures
 from services.registry_search import get_registry_stats, search_registry_items
 
@@ -459,6 +460,29 @@ def get_job(job_id: str) -> dict[str, Any]:
     return job_payload(job_id, load_params(job_id))
 
 
+@app.post("/api/connector-cad/jobs/{job_id}/sop-wi/generate")
+def generate_sop_wi_for_job(job_id: str) -> dict[str, Any]:
+    params = load_params(job_id)
+    if not (params.flat_cad or {}).get("enabled"):
+        raise HTTPException(status_code=400, detail="flat_cad is required before SOP/WI draft generation")
+    output_dir = create_job_dir(job_id)
+    try:
+        pack = export_sop_wi_package(job_id, output_dir)
+        params = params.model_copy(update={"sop_wi": pack["sop_wi"]})
+        save_params(job_id, params)
+        return {"job_id": job_id, "status": pack["sop_wi"].get("status"), "files": pack["sop_wi"].get("files", {})}
+    except Exception as exc:
+        failed_sop = {
+            "enabled": True,
+            "status": "failed",
+            "error": str(exc),
+            "warnings": ["SOP/WI draft generation failed. Existing CAD artifacts were not changed."],
+        }
+        params = params.model_copy(update={"sop_wi": failed_sop})
+        save_params(job_id, params)
+        raise HTTPException(status_code=500, detail={"status": "failed", "error": str(exc)})
+
+
 @app.get("/api/cad-registry/items")
 def list_cad_registry_items(
     q: str | None = None,
@@ -608,6 +632,12 @@ def _job_file_media_type(filename: str) -> str:
         return "application/dxf"
     if filename.endswith(".svg"):
         return "image/svg+xml"
+    if filename.endswith(".html"):
+        return "text/html; charset=utf-8"
+    if filename.endswith(".md"):
+        return "text/markdown; charset=utf-8"
+    if filename.endswith(".pdf"):
+        return "application/pdf"
     return "application/json"
 
 
@@ -739,6 +769,20 @@ def job_payload(job_id: str, params: ConnectorCadParams) -> dict[str, Any]:
             ("flat_view_classification_json", fl.get("view_classification")),
             ("flat_terminal_insertion_json", fl.get("terminal_insertion")),
             ("flat_structure_report_json", fl.get("structure_report")),
+        ]
+        for key, fn in pairs:
+            if fn:
+                base_files[key] = f"/api/connector-cad/jobs/{job_id}/files/{fn}"
+    sw = params.sop_wi or {}
+    if sw.get("enabled") and isinstance(sw.get("files"), dict):
+        sf = sw["files"]
+        pairs = [
+            ("sop_wi_draft_json", sf.get("draft_json")),
+            ("sop_wi_draft_html", sf.get("draft_html")),
+            ("sop_wi_summary_md", sf.get("summary_md")),
+            ("sop_wi_confirmation_checklist", sf.get("confirmation_checklist")),
+            ("sop_wi_assets_manifest", sf.get("assets_manifest")),
+            ("sop_wi_draft_pdf", sf.get("draft_pdf")),
         ]
         for key, fn in pairs:
             if fn:

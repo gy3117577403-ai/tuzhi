@@ -192,4 +192,26 @@ def export_visual_proxy_job(params: ConnectorCadParams, output_dir: str | Path) 
     params_path = out / "params.json"
     write_params_json(params_out, normalized, params_path)
     files["params.json"] = params_path
+
+    if (params_out.flat_cad or {}).get("enabled") and (params_out.flat_cad or {}).get("status") != "failed":
+        try:
+            from services.sop_wi_exporter import export_sop_wi_package
+
+            sop_pack = export_sop_wi_package(out.name, out, params_override=normalized)
+            params_out = params_out.model_copy(update={"sop_wi": sop_pack["sop_wi"]})
+            normalized["sop_wi"] = sop_pack["sop_wi"]
+            write_params_json(params_out, normalized, params_path)
+            for path in sop_pack.get("paths", {}).values():
+                if isinstance(path, Path):
+                    files[path.name] = path
+        except Exception as exc:
+            failed_sop = {
+                "enabled": True,
+                "status": "failed",
+                "error": str(exc),
+                "warnings": ["SOP/WI draft export failed; CAD and flat CAD artifacts remain usable."],
+            }
+            params_out = params_out.model_copy(update={"sop_wi": failed_sop})
+            normalized["sop_wi"] = failed_sop
+            write_params_json(params_out, normalized, params_path)
     return files, params_out

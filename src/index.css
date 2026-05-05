@@ -1981,6 +1981,56 @@ a {
   color: #b91c1c;
 }
 
+.sop-wi-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(180, 83, 9, 0.22);
+  background: rgba(255, 250, 245, 0.96);
+}
+
+.sop-wi-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sop-wi-head div {
+  display: grid;
+  gap: 4px;
+}
+
+.sop-wi-head strong {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.sop-wi-head span,
+.sop-wi-empty {
+  color: #7c2d12;
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 700;
+}
+
+.sop-wi-meta,
+.sop-wi-downloads {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.sop-wi-warnings {
+  margin: 0;
+  padding-left: 18px;
+  color: #92400e;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 @media (max-width: 860px) {
   .rail {
     display: none;

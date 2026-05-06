@@ -31,13 +31,12 @@ select {
 }
 
 .顶部区域,
-.搜索面板,
-.数据源面板,
-.筛选面板,
-.操作栏,
+.搜索区,
+.筛选区,
 .结果概览,
 .结果网格,
-.错误提示 {
+.错误提示,
+.图片提示 {
   max-width: 1240px;
   margin-left: auto;
   margin-right: auto;
@@ -71,10 +70,9 @@ h1 {
   font-size: 17px;
 }
 
-.状态卡,
-.搜索面板,
-.数据源面板,
-.筛选面板,
+.提示卡,
+.搜索区,
+.筛选区,
 .结果概览 {
   border: 1px solid #ded8ca;
   border-radius: 8px;
@@ -82,30 +80,28 @@ h1 {
   box-shadow: 0 10px 28px rgba(55, 45, 30, 0.05);
 }
 
-.状态卡 {
-  min-width: 250px;
+.提示卡 {
+  max-width: 390px;
   padding: 16px;
   display: grid;
   gap: 6px;
 }
 
-.状态卡 span,
-.来源列表 span,
+.提示卡 strong {
+  color: #8a4b10;
+}
+
+.提示卡 span,
 .结果概览 span,
 .结果概览 p {
   color: #746d62;
   font-size: 13px;
 }
 
-.状态卡 strong {
-  color: #8a4b10;
-  font-size: 15px;
-}
-
-.搜索面板 {
+.搜索区 {
   padding: 18px;
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(260px, 0.75fr) auto;
+  grid-template-columns: minmax(260px, 1fr) 220px minmax(260px, 0.8fr) auto;
   gap: 14px;
   align-items: end;
   margin-bottom: 16px;
@@ -142,14 +138,14 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(63, 127, 82, 0.12);
 }
 
-.上传区 {
+.图片上传 {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 10px;
 }
 
-.上传区 span {
+.图片上传 span {
   color: #6e675d;
   font-size: 13px;
   overflow: hidden;
@@ -202,54 +198,10 @@ select:focus {
   transform: translateY(-1px);
 }
 
-.数据源面板 {
-  padding: 16px 18px;
-  display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.数据源标题,
-.操作栏 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.数据源标题 svg {
-  color: #3f6b4b;
-}
-
-.导入控件 {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) 160px auto;
-  gap: 10px;
-}
-
-.来源列表 {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.来源列表 span,
-.导入提示 {
-  padding: 6px 9px;
-  border-radius: 6px;
-  background: #f1eee7;
-  margin: 0;
-}
-
-.导入提示 {
-  color: #1f6f3a;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.筛选面板 {
+.筛选区 {
   padding: 14px 18px;
   display: grid;
-  grid-template-columns: 1.3fr 220px 240px 220px;
+  grid-template-columns: 1.3fr 220px 180px auto;
   gap: 16px;
   align-items: end;
   margin-bottom: 16px;
@@ -264,8 +216,7 @@ select:focus {
   color: #3f6b4b;
 }
 
-.筛选块 select,
-.目标地 input {
+.筛选块 select {
   grid-column: 1 / -1;
 }
 
@@ -289,8 +240,21 @@ select:focus {
   background: #2f6b44;
 }
 
-.操作栏 {
-  margin-bottom: 16px;
+.异常开关 {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid #d7d1c3;
+  border-radius: 7px;
+  background: #fff;
+  white-space: nowrap;
+}
+
+.异常开关 input {
+  width: auto;
+  height: auto;
 }
 
 .结果概览 {
@@ -311,17 +275,22 @@ select:focus {
   font-size: 18px;
 }
 
-.结果概览 p {
-  margin: 0;
-}
-
+.图片提示,
 .错误提示 {
   margin-bottom: 16px;
   padding: 12px 14px;
   border-radius: 8px;
+  font-weight: 800;
+}
+
+.图片提示 {
+  color: #36513d;
+  background: #ecf5ed;
+}
+
+.错误提示 {
   color: #7f1d1d;
   background: #fee2e2;
-  font-weight: 800;
 }
 
 .结果网格 {
@@ -409,16 +378,20 @@ select:focus {
   letter-spacing: 0;
 }
 
-.店铺行,
-.来源行,
-.价格行,
-.库存行 {
+.信息行,
+.价格行 {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   color: #6d665c;
   font-size: 13px;
+}
+
+.信息行 span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .价格行 strong {
@@ -478,9 +451,8 @@ select:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .搜索面板,
-  .筛选面板,
-  .导入控件 {
+  .搜索区,
+  .筛选区 {
     grid-template-columns: 1fr;
   }
 }

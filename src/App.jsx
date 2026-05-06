@@ -1,2120 +1,306 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  AlertTriangle,
-  Box,
-  Camera,
-  CheckCircle2,
-  Code,
-  Cpu,
-  Database,
-  Download,
-  FileText,
-  Fingerprint,
-  Layers,
-  Loader2,
-  RefreshCw,
-  ShieldCheck,
-  Upload,
-  X,
-} from 'lucide-react';
-import ModelViewer from './components/ModelViewer';
-import {
-  confirmConnectorParams,
-  createCadRegistryItem,
-  createFileConnectorJob,
-  createJobFromManualImageUrl,
-  createJobFromSelectedImage,
-  createTextConnectorJob,
-  checkRegistryCache,
-  checkRegistryItemCache,
-  deprecateCadRegistryItem,
-  downloadRegistryAuditReport,
-  exportCadRegistry,
-  fileUrl,
-  exportSignedSopWi,
-  generateSopWiDraft,
-  getConfirmationStatus,
-  getAiApiStatus,
-  getCadRegistryCache,
-  getCadRegistryItemHistory,
-  getCadRegistryStats,
-  getRegistryAuditReport,
-  importCadRegistry,
-  listCadRegistryItems,
-  pollConnectorJob,
-  postAiTest,
-  resetConfirmationStatus,
-  repairRegistryCache,
-  repairRegistryItemCache,
-  refreshCadRegistryCache,
-  reviewCadRegistryItem,
-  searchConnectorImages,
-  updateConfirmationItem,
-  verifyRegistryAudit,
-} from './api/connectorCad';
+import React, { useMemo, useRef, useState } from 'react';
+import { ArrowUpDown, Camera, ExternalLink, MapPin, Search, ShieldAlert, SlidersHorizontal, Upload } from 'lucide-react';
 
-const WORKFLOW_STATUS = {
-  idle: { label: '待输入', tone: 'neutral' },
-  uploading: { label: '上传中', tone: 'active' },
-  generating: { label: '生成中', tone: 'active' },
-  needs_confirmation: { label: '预览版 / 待确认', tone: 'warning' },
-  completed: { label: '确认版已生成', tone: 'success' },
-  failed: { label: '失败', tone: 'danger' },
-};
+const 平台选项 = ['全部', '淘宝', '京东', '1688', '其他'];
 
-const tabs = [
-  { id: 'text', label: '文本描述', icon: FileText },
-  { id: 'drawing', label: '二维图纸', icon: Layers },
-  { id: 'photo', label: '3D 扫描', icon: Camera },
+function 连接器图片(颜色, 形状 = 'rect') {
+  const svg = 形状 === 'round'
+    ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 240"><rect width="360" height="240" fill="#f7f7f4"/><ellipse cx="176" cy="122" rx="82" ry="70" fill="${颜色}" stroke="#222" stroke-width="10"/><ellipse cx="176" cy="122" rx="34" ry="29" fill="#f1f1ef" stroke="#333" stroke-width="7"/><rect x="50" y="101" width="74" height="42" rx="14" fill="${颜色}" stroke="#222" stroke-width="8"/><rect x="229" y="84" width="42" height="76" rx="10" fill="#444"/><text x="24" y="220" font-family="Arial" font-size="18" fill="#555">圆形连接器示意图</text></svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 240"><rect width="360" height="240" fill="#f7f7f4"/><rect x="62" y="72" width="236" height="104" rx="18" fill="${颜色}" stroke="#222" stroke-width="8"/><rect x="96" y="99" width="168" height="52" rx="12" fill="#f5f5ef" stroke="#333" stroke-width="5"/><g fill="#222">${[0,1,2,3].map((i)=>`<circle cx="${126+i*36}" cy="125" r="10"/>`).join('')}</g><rect x="132" y="48" width="96" height="25" rx="7" fill="${颜色}" stroke="#222" stroke-width="6"/><text x="24" y="220" font-family="Arial" font-size="18" fill="#555">矩形连接器示意图</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+const mock商品 = [
+  {
+    id: 'taobao-001',
+    平台: '淘宝',
+    店铺: '华南接插件现货店',
+    标题: 'TE 同款 1-968970-1 汽车连接器护套 4孔 蓝色',
+    价格: 3.8,
+    发货地: '广东 深圳',
+    库存: '现货 1200 件',
+    起订量: '10 件起订',
+    参数: ['4孔', '蓝色护套', '汽车线束', 'PA66'],
+    匹配度: 96,
+    风险: ['需核对原厂料号授权'],
+    链接: 'https://example.com/taobao/1-968970-1',
+    图片: 连接器图片('#2f73d8'),
+    异常价格: false,
+  },
+  {
+    id: 'jd-001',
+    平台: '京东',
+    店铺: '工控电子自营专区',
+    标题: '1-968970-1 连接器外壳 端子配套 汽车插件',
+    价格: 6.5,
+    发货地: '江苏 苏州',
+    库存: '现货 380 件',
+    起订量: '1 件起订',
+    参数: ['4位', '线束外壳', '耐温 -40~105℃'],
+    匹配度: 92,
+    风险: ['价格含平台服务费'],
+    链接: 'https://example.com/jd/1-968970-1',
+    图片: 连接器图片('#2f73d8'),
+    异常价格: false,
+  },
+  {
+    id: '1688-001',
+    平台: '1688',
+    店铺: '东莞精密连接器厂',
+    标题: '汽车连接器 1-968970-1 蓝色胶壳 可配端子',
+    价格: 1.26,
+    发货地: '广东 东莞',
+    库存: '库存 9800 件',
+    起订量: '500 件起订',
+    参数: ['工厂批发', '可配端子', '蓝色', '批量价'],
+    匹配度: 89,
+    风险: ['起订量较高', '需确认是否原厂兼容'],
+    链接: 'https://example.com/1688/1-968970-1',
+    图片: 连接器图片('#2f73d8'),
+    异常价格: false,
+  },
+  {
+    id: 'taobao-002',
+    平台: '淘宝',
+    店铺: '线束端子配件仓',
+    标题: '8-968970-1 相近型号蓝色汽车接插件',
+    价格: 2.9,
+    发货地: '浙江 宁波',
+    库存: '现货 600 件',
+    起订量: '20 件起订',
+    参数: ['相近料号', '蓝色', '汽车插件'],
+    匹配度: 71,
+    风险: ['相近型号风险', '不能直接替代需确认'],
+    链接: 'https://example.com/taobao/8-968970-1',
+    图片: 连接器图片('#3777d4'),
+    异常价格: false,
+  },
+  {
+    id: 'other-001',
+    平台: '其他',
+    店铺: 'Mouser 代购报价',
+    标题: 'TE Connectivity 1-968970-1 连接器采购代订',
+    价格: 12.4,
+    发货地: '海外仓',
+    库存: '预计 2-3 周',
+    起订量: '1 件起订',
+    参数: ['品牌渠道', '代订', '交期较长'],
+    匹配度: 94,
+    风险: ['交期不确定', '需核对含税运费'],
+    链接: 'https://example.com/distributor/1-968970-1',
+    图片: 连接器图片('#2f73d8'),
+    异常价格: false,
+  },
+  {
+    id: '1688-002',
+    平台: '1688',
+    店铺: '温州端子连接器批发',
+    标题: '6-968970-1 相近规格连接器胶壳 批发',
+    价格: 0.18,
+    发货地: '浙江 温州',
+    库存: '库存 20000 件',
+    起订量: '1000 件起订',
+    参数: ['相近料号', '批发低价', '需样品确认'],
+    匹配度: 63,
+    风险: ['相近型号风险', '价格异常', '参数不完整'],
+    链接: 'https://example.com/1688/6-968970-1',
+    图片: 连接器图片('#2f73d8'),
+    异常价格: true,
+  },
+  {
+    id: 'jd-002',
+    平台: '京东',
+    店铺: '汽车线束配件旗舰店',
+    标题: '1-968970-1 蓝色连接器套装 含端子密封塞',
+    价格: 9.9,
+    发货地: '上海',
+    库存: '现货 88 套',
+    起订量: '1 套起订',
+    参数: ['套装', '含端子', '含密封塞'],
+    匹配度: 88,
+    风险: ['套装价格不可直接对比单壳'],
+    链接: 'https://example.com/jd/kit-1-968970-1',
+    图片: 连接器图片('#2f73d8'),
+    异常价格: false,
+  },
+  {
+    id: 'taobao-003',
+    平台: '淘宝',
+    店铺: '工业圆形航空插头店',
+    标题: '圆形防水连接器 4芯 黑色 航空插头',
+    价格: 18.5,
+    发货地: '浙江 宁波',
+    库存: '现货 260 件',
+    起订量: '2 件起订',
+    参数: ['圆形', '防水', '4芯', '黑色'],
+    匹配度: 42,
+    风险: ['图片相似但型号不匹配', '非目标料号'],
+    链接: 'https://example.com/taobao/round-connector',
+    图片: 连接器图片('#18191b', 'round'),
+    异常价格: false,
+  },
 ];
 
-const CONFIRM_FIELDS = [
-  ['body_length_mm', '总长', 'overall_length'],
-  ['body_width_mm', '总宽', 'overall_width'],
-  ['body_height_mm', '总高', 'overall_height'],
-  ['pitch_mm', '针距', 'pin_pitch'],
-  ['positions', '针位数', 'pin_count'],
-  ['cavity_diameter_mm', '孔腔直径', 'pin_diameter'],
-  ['mounting_hole_spacing_mm', '安装孔距', 'mount_hole_spacing'],
-  ['mounting_hole_diameter_mm', '安装孔直径', 'mount_hole_diameter'],
-];
+function 地区命中分(发货地, 目标地) {
+  const 发货 = 发货地.replace(/\s+/g, '');
+  const 目标 = 目标地.replace(/\s+/g, '');
+  if (!目标) return 0;
+  if (发货.includes(目标) || 目标.includes(发货)) return 3;
+  const 目标片段 = 目标地.split(/\s+/).filter(Boolean);
+  return 目标片段.reduce((分, 片段) => 分 + (发货.includes(片段) ? 1 : 0), 0);
+}
+
+function 价格排序值(商品) {
+  return 商品.异常价格 ? 商品.价格 + 100000 : 商品.价格;
+}
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('text');
-  const [inputText, setInputText] = useState('');
-  const [file, setFile] = useState(null);
-  const [job, setJob] = useState(null);
-  const [status, setStatus] = useState('idle');
-  const [error, setError] = useState('');
-  const [confirmValues, setConfirmValues] = useState({});
-  const [unknownNotes, setUnknownNotes] = useState({});
-  const [confirmNotes, setConfirmNotes] = useState('用户已确认关键尺寸');
-  const [showRegistry, setShowRegistry] = useState(false);
-  const fileInputRef = useRef(null);
+  const [型号, 设置型号] = useState('1-968970-1 connector');
+  const [图片名, 设置图片名] = useState('');
+  const [平台, 设置平台] = useState('全部');
+  const [排序, 设置排序] = useState('价格');
+  const [目标地, 设置目标地] = useState('浙江 宁波');
+  const [已搜索, 设置已搜索] = useState(true);
+  const fileRef = useRef(null);
 
-  const [aiApiStatus, setAiApiStatus] = useState(null);
-  const [aiTestFailed, setAiTestFailed] = useState(false);
-  const [aiTestBusy, setAiTestBusy] = useState(false);
-  const [aiTestMessage, setAiTestMessage] = useState('');
-  const [imageSearch, setImageSearch] = useState(null);
-  const [imageSearchBusy, setImageSearchBusy] = useState(false);
-  const [selectedCandidateId, setSelectedCandidateId] = useState('');
-  const [manualImageUrl, setManualImageUrl] = useState('');
-  const [manualSourceUrl, setManualSourceUrl] = useState('');
-  const [sopWiBusy, setSopWiBusy] = useState(false);
-  const [confirmationStatus, setConfirmationStatus] = useState(null);
-  const [confirmationEdits, setConfirmationEdits] = useState({});
-
-  const canGenerate = activeTab === 'text' ? inputText.trim().length > 0 : Boolean(file);
-  const isBusy = status === 'uploading' || status === 'generating';
-
-  useEffect(() => {
-    let cancelled = false;
-    getAiApiStatus()
-      .then((data) => {
-        if (!cancelled) {
-          setAiApiStatus(data);
-          setAiTestFailed(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setAiApiStatus({ configured: false, model: '', key_preview: '' });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleAiTest = async () => {
-    const sample = inputText.trim() || 'TE 282104-1 2 pin automotive connector pitch 6.0mm';
-    setAiTestBusy(true);
-    setAiTestMessage('');
-    try {
-      const res = await postAiTest(sample);
-      setAiTestFailed(!res.ok);
-      const errorType = res.meta?.error_type || '';
-      const errText = res.meta?.error || errorType || '';
-      setAiTestMessage(res.ok ? 'AI 測試解析成功' : `AI 已配置检查失败：${errorType || 'unknown'}${errText ? `；${errText}` : ''}。不影响图片搜索生成流程。`);
-    } catch (err) {
-      setAiTestFailed(true);
-      setAiTestMessage(err.message || 'AI 測試請求失敗');
-    } finally {
-      setAiTestBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!job?.params?.dimensions) return;
-    const next = {};
-    for (const [fieldKey, , dimensionKey] of CONFIRM_FIELDS) {
-      const value = job.params.dimensions[dimensionKey]?.value;
-      if (value !== undefined) next[fieldKey] = value;
-    }
-    setConfirmValues(next);
-    setUnknownNotes({});
-  }, [job?.job_id]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setConfirmationStatus(null);
-    setConfirmationEdits({});
-    if (!job?.job_id || !job.params?.sop_wi?.enabled) return () => {
-      cancelled = true;
-    };
-    getConfirmationStatus(job.job_id)
-      .then((data) => {
-        if (!cancelled) setConfirmationStatus(data);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [job?.job_id, job?.params?.sop_wi?.enabled]);
-
-  const handleGenerate = async () => {
-    if (!canGenerate || isBusy) return;
-    setError('');
-    setJob(null);
-    setStatus(activeTab === 'text' ? 'generating' : 'uploading');
-    try {
-      const created = activeTab === 'text'
-        ? await createTextConnectorJob(inputText.trim())
-        : await createFileConnectorJob(activeTab, file);
-      setJob(created);
-      setStatus('generating');
-      const finalJob = await pollConnectorJob(created.job_id);
-      setJob(finalJob);
-      setStatus(finalJob.status === 'failed' ? 'failed' : finalJob.status);
-      if (finalJob.status === 'failed') setError(finalJob.error || '生成失败');
-    } catch (err) {
-      setStatus('failed');
-      setError(err.message || '生成失败');
-    }
-  };
-
-  const finishCreatedJob = async (created) => {
-    setJob(created);
-    setStatus('generating');
-    const finalJob = await pollConnectorJob(created.job_id);
-    setJob(finalJob);
-    setStatus(finalJob.status === 'failed' ? 'failed' : finalJob.status);
-    if (finalJob.status === 'failed') setError(finalJob.error || '鐢熸垚澶辫触');
-  };
-
-  const handleImageSearch = async () => {
-    const query = inputText.trim();
-    if (!query || imageSearchBusy || isBusy) return;
-    setError('');
-    setImageSearch(null);
-    setImageSearchBusy(true);
-    try {
-      const result = await searchConnectorImages(query, 8);
-      setImageSearch(result);
-    } catch (err) {
-      setError(err.message || '图片搜索失败');
-    } finally {
-      setImageSearchBusy(false);
-    }
-  };
-
-  const handleCreateFromCandidate = async (candidate) => {
-    if (!imageSearch?.search_id || !candidate?.id || isBusy) return;
-    const generationRisk = candidate.generation_risk || {};
-    const requiresConfirmation = Boolean(generationRisk.requires_confirmation);
-    const acceptedRiskCode = generationRisk.confirmation_code || '';
-    const acceptPartMismatchRisk = acceptedRiskCode === 'near_miss_part_number';
-    if (requiresConfirmation) {
-      const confirmed = window.confirm(`${riskPromptText(acceptedRiskCode)}\n\n${generationRisk.recommended_action || '请人工核对后再生成。'}\n\n确认继续？`);
-      if (!confirmed) return;
-    }
-    setError('');
-    setSelectedCandidateId(candidate.id);
-    setStatus('generating');
-    try {
-      const created = await createJobFromSelectedImage(
-        imageSearch.search_id,
-        candidate.id,
-        inputText.trim(),
-        acceptPartMismatchRisk,
-        requiresConfirmation,
-        acceptedRiskCode,
-      );
-      await finishCreatedJob(created);
-    } catch (err) {
-      setStatus('failed');
-      setError(err.message || '选择图片生成失败');
-    } finally {
-      setSelectedCandidateId('');
-    }
-  };
-
-  const handleManualImageGenerate = async () => {
-    const query = inputText.trim();
-    const imageUrl = manualImageUrl.trim();
-    if (!query || !imageUrl || isBusy) return;
-    setError('');
-    setSelectedCandidateId('manual_image');
-    setStatus('generating');
-    try {
-      const created = await createJobFromManualImageUrl(query, imageUrl, manualSourceUrl.trim(), '手动图片 URL');
-      await finishCreatedJob(created);
-    } catch (err) {
-      setStatus('failed');
-      setError(err.message || '手动图片 URL 生成失败');
-    } finally {
-      setSelectedCandidateId('');
-    }
-  };
-
-  const handleConfirm = async () => {
-    if (!job || isBusy) return;
-    setError('');
-    setStatus('generating');
-    try {
-      const acceptedUnknowns = (job.params?.unknown_fields || []).filter((field) => (unknownNotes[field] || '').trim());
-      const confirmed = {};
-      for (const [key] of CONFIRM_FIELDS) {
-        const value = Number(confirmValues[key]);
-        if (Number.isFinite(value)) confirmed[key] = value;
+  const 结果 = useMemo(() => {
+    const 关键词 = 型号.trim().toLowerCase();
+    const 过滤后 = mock商品.filter((商品) => {
+      const 平台匹配 = 平台 === '全部' || 商品.平台 === 平台;
+      const 文本 = `${商品.标题} ${商品.参数.join(' ')}`.toLowerCase();
+      const 关键词匹配 = !关键词 || 文本.includes(关键词.split(/\s+/)[0]) || 商品.匹配度 >= 60;
+      return 平台匹配 && 关键词匹配;
+    });
+    return [...过滤后].sort((a, b) => {
+      if (排序 === '发货地') {
+        const 地区差 = 地区命中分(b.发货地, 目标地) - 地区命中分(a.发货地, 目标地);
+        if (地区差 !== 0) return 地区差;
+        if (a.异常价格 !== b.异常价格) return a.异常价格 ? 1 : -1;
+        return a.价格 - b.价格;
       }
-      const updated = await confirmConnectorParams(job.job_id, {
-        confirmed_params: confirmed,
-        accepted_unknowns: acceptedUnknowns,
-        notes: confirmNotes,
-      });
-      const finalJob = await pollConnectorJob(updated.job_id);
-      setJob(finalJob);
-      setStatus(finalJob.status);
-      if (finalJob.status === 'failed') setError(finalJob.error || '重新生成失败');
-    } catch (err) {
-      setStatus('failed');
-      setError(err.message || '重新生成失败');
-    }
-  };
+      const 价差 = 价格排序值(a) - 价格排序值(b);
+      if (价差 !== 0) return 价差;
+      return b.匹配度 - a.匹配度;
+    });
+  }, [型号, 平台, 排序, 目标地]);
 
-  const handleGenerateSopWi = async () => {
-    if (!job?.job_id || sopWiBusy) return;
-    setError('');
-    setSopWiBusy(true);
-    try {
-      await generateSopWiDraft(job.job_id);
-      const refreshed = await pollConnectorJob(job.job_id, 2);
-      setJob(refreshed);
-      setStatus(refreshed.status === 'failed' ? 'failed' : refreshed.status);
-    } catch (err) {
-      setError(err.message || 'SOP/WI 草稿生成失败');
-    } finally {
-      setSopWiBusy(false);
-    }
-  };
-
-  const refreshConfirmationStatus = async () => {
-    if (!job?.job_id) return;
-    const data = await getConfirmationStatus(job.job_id);
-    setConfirmationStatus(data);
-  };
-
-  const handleSaveConfirmationItem = async (item) => {
-    if (!job?.job_id || !item?.id) return;
-    const edit = confirmationEdits[item.id] || {};
-    try {
-      const data = await updateConfirmationItem(job.job_id, item.id, {
-        status: edit.status ?? item.status,
-        note: edit.note ?? item.note ?? '',
-        confirmed_by: edit.confirmed_by ?? item.confirmed_by ?? '',
-        role: edit.role ?? item.role ?? 'engineering',
-      });
-      setConfirmationStatus(data);
-      setConfirmationEdits((prev) => ({ ...prev, [item.id]: {} }));
-      const refreshed = await getConnectorJob(job.job_id);
-      setJob(refreshed);
-    } catch (err) {
-      setError(err.message || '确认项保存失败');
-    }
-  };
-
-  const handleResetConfirmation = async () => {
-    if (!job?.job_id) return;
-    try {
-      const data = await resetConfirmationStatus(job.job_id);
-      setConfirmationStatus(data);
-      setConfirmationEdits({});
-    } catch (err) {
-      setError(err.message || '确认状态重置失败');
-    }
-  };
-
-  const handleExportSignedSopWi = async () => {
-    if (!job?.job_id) return;
-    setSopWiBusy(true);
-    try {
-      await exportSignedSopWi(job.job_id);
-      const data = await getConfirmationStatus(job.job_id);
-      setConfirmationStatus(data);
-      const refreshed = await getConnectorJob(job.job_id);
-      setJob(refreshed);
-    } catch (err) {
-      setError(err.message || '带签核状态 SOP/WI 导出失败');
-    } finally {
-      setSopWiBusy(false);
-    }
-  };
-
-  const reset = () => {
-    setJob(null);
-    setFile(null);
-    setInputText('');
-    setError('');
-    setImageSearch(null);
-    setManualImageUrl('');
-    setManualSourceUrl('');
-    setStatus('idle');
-  };
-
-  const aiStatusLabel = !aiApiStatus
-    ? '讀取中…'
-    : aiTestFailed
-      ? (aiApiStatus.configured ? '已配置但测试失败' : '配置不完整')
-      : aiApiStatus.configured
-        ? '已配置'
-        : '配置不完整';
+  const 异常数量 = 结果.filter((商品) => 商品.异常价格).length;
+  const 高风险数量 = 结果.filter((商品) => 商品.风险.some((项) => 项.includes('相近') || 项.includes('异常'))).length;
 
   return (
-    <div className="app-shell">
-      <aside className="rail" aria-label="主工具栏">
-        <button className="rail-primary" title="SmartCAD"><Box size={18} /></button>
-        <div className="rail-line" />
-        <button className="rail-tool active" title="生成"><FileText size={18} /></button>
-        <button className="rail-tool" title="模型"><Layers size={18} /></button>
-        <button className="rail-tool" title="导出"><Download size={18} /></button>
-      </aside>
-
-      <header className="topbar">
-        <div className="brand">
-          <span>SmartCAD 连接器生成</span>
-          <span className="version">MVP</span>
-          <StatusBadge status={status} />
-        </div>
-        <div className="top-actions">
-          <div className="ai-toolbar" title={aiApiStatus?.error_type || ''}>
-            <Cpu size={14} aria-hidden />
-            <span>
-              AI API：{aiStatusLabel}
-            </span>
-            {aiApiStatus?.configured && aiApiStatus.model ? (
-              <span className="ai-model" title={aiApiStatus.model}>{aiApiStatus.model}</span>
-            ) : null}
-            <button type="button" className="small-action" disabled={aiTestBusy} onClick={handleAiTest}>
-              {aiTestBusy ? <Loader2 className="spin" size={12} /> : null}
-              測試 AI 解析
-            </button>
-          </div>
-          {aiTestMessage ? <span className="ai-test-msg">{aiTestMessage}</span> : null}
-          <button className="docs-link button-link" onClick={() => setShowRegistry(true)}>
-            <Database size={14} />
-            CAD 来源库
-          </button>
-          <a className="docs-link" href="/docs" target="_blank" rel="noreferrer">API 文档</a>
-        </div>
-      </header>
-
-      {showRegistry && <RegistryPanel onClose={() => setShowRegistry(false)} />}
-
-      {!job ? (
-        <main className="center-stage">
-          <section className="input-panel">
-            <div className="tabs">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  className={activeTab === tab.id ? 'tab active' : 'tab'}
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    setError('');
-                    if (!isBusy) setStatus('idle');
-                  }}
-                >
-                  <tab.icon size={15} />
-                  <span>{tab.label}</span>
-                </button>
-              ))}
-            </div>
-            {activeTab === 'text' ? (
-              <>
-                <input
-                  className="hero-input"
-                  value={inputText}
-                  onChange={(event) => {
-                    setInputText(event.target.value);
-                    setImageSearch(null);
-                    if (!isBusy) setStatus('idle');
-                  }}
-                  placeholder="输入连接器型号或描述"
-                  autoFocus
-                />
-                <div className="examples">
-                  <span>示例</span>
-                  {['1-968970-1', 'TE 282104-1', 'LOCAL SAMPLE STEP', 'CACHE SAMPLE STEP'].map((item) => (
-                    <button key={item} onClick={() => { setInputText(item); setImageSearch(null); }}>{item}</button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <FileDropZone file={file} fileInputRef={fileInputRef} setFile={setFile} setStatus={setStatus} />
-            )}
-            <button className="generate-button" disabled={!canGenerate || isBusy} onClick={handleGenerate}>
-              {isBusy ? <Loader2 className="spin" size={17} /> : <Box size={17} />}
-              <span>{isBusy ? WORKFLOW_STATUS[status].label : '生成 CAD 文件'}</span>
-            </button>
-            {activeTab === 'text' ? (
-              <>
-                <button
-                  className="image-search-button"
-                  disabled={!inputText.trim() || imageSearchBusy || isBusy}
-                  onClick={handleImageSearch}
-                >
-                  {imageSearchBusy ? <Loader2 className="spin" size={16} /> : <Camera size={16} />}
-                  <span>{imageSearchBusy ? '搜索图片中...' : '搜索图片生成相似 CAD'}</span>
-                </button>
-                <ImageSearchPanel
-                  search={imageSearch}
-                  busy={imageSearchBusy}
-                  selectedCandidateId={selectedCandidateId}
-                  manualImageUrl={manualImageUrl}
-                  manualSourceUrl={manualSourceUrl}
-                  setManualImageUrl={setManualImageUrl}
-                  setManualSourceUrl={setManualSourceUrl}
-                  onSelect={handleCreateFromCandidate}
-                  onManualGenerate={handleManualImageGenerate}
-                  canManualGenerate={Boolean(inputText.trim() && manualImageUrl.trim() && !isBusy)}
-                />
-              </>
-            ) : null}
-            {isBusy && activeTab === 'text' && (
-              <p className="generating-hint">
-                正在搜尋相關產品圖 → 排序可信圖片 → 提取外觀特徵 → 生成視覺近似 CAD（若未設定圖片搜尋 API，將自動回退既有流程）。
-              </p>
-            )}
-            {error && <ErrorMessage error={error} />}
-          </section>
-        </main>
-      ) : (
-        <main className="workspace">
-          <section className="viewer-card">
-            <div className="viewer-heading">
-              <div>
-                <h1>{job.params?.title || job.params?.part_number || '通用矩形连接器'}</h1>
-                <div className="viewer-origin-row">
-                  <OriginPill job={job} />
-                  <p className="viewer-sub">{modelSourceSubtitle(job)}</p>
-                </div>
-              </div>
-              <button className="icon-button" onClick={reset} title="关闭工作区"><X size={16} /></button>
-            </div>
-            <ModelViewer
-              jobId={job.job_id}
-              stlUrl={job.files?.model_stl}
-              previewBaseColor={job.params?.preview_style?.base_color}
-            />
-            <FlatCadPanel job={job} />
-          </section>
-
-          <aside className="inspector">
-            <div className="inspector-title">
-              <span>属性面板</span>
-              <button className="icon-button" onClick={handleGenerate} disabled={isBusy} title="重新生成">
-                <RefreshCw size={15} className={isBusy ? 'spin' : ''} />
-              </button>
-            </div>
-            {(job.params?.model_origin === 'image_search_approximated'
-              || job.params?.model_origin === 'image_upload_approximated') && (
-              <div className="image-search-banner" role="alert">
-                <AlertTriangle size={17} />
-                <span>
-                  {job.params?.model_origin === 'image_upload_approximated'
-                    ? '图片驱动外观近似 CAD。依据上传图片生成，仅用于外观预览，不代表原厂 CAD，不可直接作为制造尺寸依据。'
-                    : '圖片搜尋驅動外觀近似 CAD。依網路圖片生成，僅供外觀預覽，不代表原廠 CAD，不可直接作為製造尺寸依據。'}
-                </span>
-              </div>
-            )}
-            <SourcePanel job={job} />
-            <ImageSearchSourcePanel job={job} />
-            <AppearanceDetailPanel job={job} />
-            <AiExtractionPanel job={job} />
-            <AuditPanel job={job} />
-            <SopWiPanel
-              job={job}
-              isBusy={sopWiBusy}
-              onGenerate={handleGenerateSopWi}
-              confirmationStatus={confirmationStatus}
-              confirmationEdits={confirmationEdits}
-              setConfirmationEdits={setConfirmationEdits}
-              onRefreshConfirmation={refreshConfirmationStatus}
-              onSaveConfirmationItem={handleSaveConfirmationItem}
-              onResetConfirmation={handleResetConfirmation}
-              onExportSigned={handleExportSignedSopWi}
-            />
-            <StatusPanel status={status} warning={job.warning || job.params?.warning} />
-            {status === 'completed' && <SuccessMessage job={job} />}
-            {status === 'failed' && error && <ErrorMessage error={error} />}
-            {job.params?.model_origin !== 'official_cad' && (
-              <>
-                <div className="section-label">参数表</div>
-                <ParamGrid dimensions={job.params?.dimensions || {}} />
-                {status === 'needs_confirmation' && (
-                  <ConfirmPanel
-                    job={job}
-                    confirmValues={confirmValues}
-                    setConfirmValues={setConfirmValues}
-                    unknownNotes={unknownNotes}
-                    setUnknownNotes={setUnknownNotes}
-                    confirmNotes={confirmNotes}
-                    setConfirmNotes={setConfirmNotes}
-                    isBusy={isBusy}
-                    onConfirm={handleConfirm}
-                  />
-                )}
-              </>
-            )}
-            <DownloadPanel job={job} />
-          </aside>
-        </main>
-      )}
-    </div>
-  );
-}
-
-function FileDropZone({ file, fileInputRef, setFile, setStatus }) {
-  const updateFile = (nextFile) => {
-    setFile(nextFile);
-    setStatus('idle');
-  };
-  return (
-    <div
-      className="drop-zone"
-      onClick={() => fileInputRef.current?.click()}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault();
-        updateFile(event.dataTransfer.files?.[0] || null);
-      }}
-    >
-      <Upload size={22} />
-      <strong>{file ? file.name : '上传图纸、PDF、DXF、图片或扫描图'}</strong>
-      <span>{file ? `${Math.ceil(file.size / 1024)} KB` : '上传入口使用 FormData 发送到后端'}</span>
-      <input
-        ref={fileInputRef}
-        type="file"
-        hidden
-        accept=".pdf,.dxf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff"
-        onChange={(event) => updateFile(event.target.files?.[0] || null)}
-      />
-    </div>
-  );
-}
-
-function ImageSearchPanel({
-  search,
-  busy,
-  selectedCandidateId,
-  manualImageUrl,
-  manualSourceUrl,
-  setManualImageUrl,
-  setManualSourceUrl,
-  onSelect,
-  onManualGenerate,
-  canManualGenerate,
-}) {
-  const [failedImages, setFailedImages] = useState({});
-  if (busy) {
-    return (
-      <div className="image-search-panel loading">
-        <Loader2 className="spin" size={18} />
-        <span>正在搜索候选图片...</span>
-      </div>
-    );
-  }
-  if (!search) return null;
-  const results = search.results || [];
-  const matchSummary = search.match_summary || {};
-  const nearMissResults = results.filter((candidate) => candidate.part_match?.match_level === 'near_miss');
-  const primaryResults = results.filter((candidate) => candidate.part_match?.match_level !== 'near_miss');
-  const notConfigured = search.status === 'not_configured';
-  const failed = search.status === 'failed';
-  const showManualFallback = notConfigured || failed;
-  const renderCandidate = (candidate) => {
-    const partMatch = candidate.part_match || {};
-    const evidence = candidate.match_evidence || {};
-    const generationRisk = candidate.generation_risk || {};
-    const matchLevel = partMatch.match_level || 'none';
-    const evidenceLevel = evidence.evidence_level || 'unknown';
-    const requiresConfirmation = Boolean(generationRisk.requires_confirmation);
-    const isNearMiss = matchLevel === 'near_miss';
-    const exactLowEvidence = matchLevel === 'exact' && evidenceLevel === 'low';
-    return (
-      <article key={candidate.id} className={`candidate-card match-${matchLevel} evidence-${evidenceLevel}`}>
-        <div className="candidate-thumb">
-          {failedImages[candidate.id] ? (
-            <div className="thumb-fallback">缩略图加载失败，但仍可尝试使用原图 URL</div>
-          ) : (
-            <img
-              src={candidate.thumbnail_url || candidate.image_url}
-              alt={candidate.title || 'candidate connector'}
-              onError={() => setFailedImages((current) => ({ ...current, [candidate.id]: true }))}
-            />
-          )}
-        </div>
-        <div className="candidate-body">
-          <div className="candidate-title-row">
-            <strong>{candidate.title || 'Untitled candidate'}</strong>
-            <PartMatchBadge level={matchLevel} />
-            <EvidenceBadge level={evidenceLevel} />
-          </div>
-          <span>{candidate.domain || domainFromUrl(candidate.source_url) || 'unknown source'}</span>
-          <span>provider: {candidate.provider || search.provider || 'unknown'}</span>
-          <span>search_round: {candidate.search_round || 'initial'}</span>
-          <span>score: {candidate.score ?? 'n/a'}</span>
-          <span>evidence_score: {evidence.evidence_score ?? 'n/a'}</span>
-          {partMatch.matched_part_number ? <span>matched_part_number: {partMatch.matched_part_number}</span> : null}
-          {partMatch.reason ? <p className={`part-match-reason ${isNearMiss ? 'danger' : ''}`}>{partMatch.reason}</p> : null}
-          <div className="evidence-flags">
-            <span>title exact: {formatBool(evidence.title_has_exact)}</span>
-            <span>source exact: {formatBool(evidence.source_url_has_exact)}</span>
-            <span>image exact: {formatBool(evidence.image_url_has_exact)}</span>
-            <span>thumb exact: {formatBool(evidence.thumbnail_url_has_exact)}</span>
-            <span>trusted domain: {formatBool(evidence.domain_trusted)}</span>
-            <span>probe ok: {formatBool(evidence.download_probe_ok)}</span>
-          </div>
-          {Array.isArray(evidence.warnings) && evidence.warnings.length ? (
-            <div className={`evidence-warning ${evidenceLevel === 'low' ? 'danger' : ''}`}>{evidence.warnings.join('；')}</div>
-          ) : null}
-          <div className={`generation-risk ${requiresConfirmation ? 'confirm' : generationRisk.risk_level === 'notice' ? 'notice' : ''}`}>
-            <span>risk_level: {generationRisk.risk_level || 'none'}</span>
-            <span>confirmation_code: {generationRisk.confirmation_code || 'none'}</span>
-            {Array.isArray(generationRisk.risk_reasons) && generationRisk.risk_reasons.length ? (
-              <p>{generationRisk.risk_reasons.join('；')}</p>
-            ) : null}
-            {generationRisk.recommended_action ? <p>{generationRisk.recommended_action}</p> : null}
-          </div>
-          <p>{candidate.rank_reason || 'Connector-like visual candidate'}</p>
-          {candidate.source_url ? (
-            <a href={candidate.source_url} target="_blank" rel="noreferrer">source_url</a>
-          ) : null}
-        </div>
-        {isNearMiss ? (
-          <div className="candidate-near-alert">
-            该候选图可能属于相近料号，不一定是当前输入型号，生成结果仅供外观参考。
-          </div>
-        ) : null}
-        {exactLowEvidence ? (
-          <div className="candidate-near-alert">
-            完整料号命中，但图片证据较弱，请人工核对。
-          </div>
-        ) : null}
-        {generationRisk.confirmation_code === 'no_part_number_match' ? (
-          <div className="candidate-near-alert">图片未匹配当前料号，请谨慎使用。</div>
-        ) : null}
-        <button
-          className={`candidate-select ${requiresConfirmation ? 'danger' : ''}`}
-          onClick={() => onSelect(candidate)}
-          disabled={Boolean(selectedCandidateId)}
-        >
-          {selectedCandidateId === candidate.id ? <Loader2 className="spin" size={14} /> : <Camera size={14} />}
-          <span>{requiresConfirmation ? '确认风险并生成 CAD' : '选择此图生成 CAD'}</span>
-        </button>
-      </article>
-    );
-  };
-  return (
-    <div className="image-search-panel">
-      <div className="image-search-head">
+    <main className="采购页面">
+      <section className="顶部区域">
         <div>
-          <strong>{notConfigured ? '图片搜索未配置' : '候选图片'}</strong>
-          <span>{search.provider || 'unknown'} / {search.status || 'unknown'} / {results.length} results</span>
-          {search.expanded_query ? <span>expanded_query: {search.expanded_query}</span> : null}
+          <p className="小标题">连接器采购搜索与比价工具</p>
+          <h1>连接器采购搜索</h1>
+          <p className="副标题">输入型号或上传图片，搜索可采购连接器商品</p>
         </div>
-        {search.search_id ? <code>{search.search_id}</code> : null}
-      </div>
-      <div className="image-source-alert">
-        该模型由搜索图片生成，仅为外观近似 CAD，不代表原厂 CAD，不可作为制造尺寸依据。
-      </div>
-      <div className="match-summary-row">
-        <span className="summary-chip exact">完整匹配 {matchSummary.exact ?? 0}</span>
-        <span className="summary-chip weak">弱匹配 {matchSummary.weak ?? 0}</span>
-        <span className="summary-chip near">相近料号 {matchSummary.near_miss ?? 0}</span>
-        <span className="summary-chip none">未匹配 {matchSummary.none ?? 0}</span>
-      </div>
-      {matchSummary.has_exact === false ? (
-        <div className="candidate-near-alert">
-          未找到完整料号匹配图片，当前结果可能是相近料号，请谨慎选择。
-        </div>
-      ) : null}
-      {Array.isArray(search.refined_searches) && search.refined_searches.length ? (
-        <div className="refined-searches">
-          <strong>精确料号二次搜索</strong>
-          {search.refined_searches.map((item) => (
-            <span key={`${item.query}-${item.status}`}>{item.query} / {item.status} / {item.results_count} results</span>
-          ))}
-        </div>
-      ) : null}
-      {Array.isArray(search.warnings) && search.warnings.length ? (
-        <div className="image-search-warnings">{search.warnings.join('；')}</div>
-      ) : null}
-      {showManualFallback ? (
-        <ManualImageUrlForm
-          imageUrl={manualImageUrl}
-          sourceUrl={manualSourceUrl}
-          setImageUrl={setManualImageUrl}
-          setSourceUrl={setManualSourceUrl}
-          onGenerate={onManualGenerate}
-          canGenerate={canManualGenerate}
-          busy={selectedCandidateId === 'manual_image'}
-        />
-      ) : null}
-      {results.length ? (
-        <>
-          {primaryResults.length ? <div className="candidate-grid">{primaryResults.map(renderCandidate)}</div> : null}
-          {nearMissResults.length ? (
-            <details className="near-miss-section">
-              <summary>相近料号风险候选（{nearMissResults.length}）</summary>
-              <div className="candidate-grid">{nearMissResults.map(renderCandidate)}</div>
-            </details>
-          ) : null}
-        </>
-      ) : !notConfigured ? (
-        <div className="empty-panel">没有返回候选图片，可稍后重试或检查图片搜索配置。</div>
-      ) : null}
-    </div>
-  );
-}
-
-function ManualImageUrlForm({
-  imageUrl,
-  sourceUrl,
-  setImageUrl,
-  setSourceUrl,
-  onGenerate,
-  canGenerate,
-  busy,
-}) {
-  return (
-    <div className="manual-image-form">
-      <label>
-        <span>手动图片 URL</span>
-        <input
-          value={imageUrl}
-          onChange={(event) => setImageUrl(event.target.value)}
-          placeholder="https://example.com/connector-photo.png"
-        />
-      </label>
-      <label>
-        <span>来源链接（可选）</span>
-        <input
-          value={sourceUrl}
-          onChange={(event) => setSourceUrl(event.target.value)}
-          placeholder="https://example.com/product-page"
-        />
-      </label>
-      <button className="candidate-select manual" disabled={!canGenerate || busy} onClick={onGenerate}>
-        {busy ? <Loader2 className="spin" size={14} /> : <Camera size={14} />}
-        <span>使用手动图片 URL 生成 CAD</span>
-      </button>
-    </div>
-  );
-}
-
-function PartMatchBadge({ level }) {
-  const labels = {
-    exact: '完整料号匹配',
-    weak: '弱匹配',
-    near_miss: '相近料号风险',
-    none: '未匹配料号',
-  };
-  const normalized = labels[level] ? level : 'none';
-  return <span className={`part-match-badge ${normalized}`}>{labels[normalized]}</span>;
-}
-
-function EvidenceBadge({ level }) {
-  const labels = {
-    high: '高可信',
-    medium: '中等可信',
-    low: '低可信，需核对',
-    unknown: '未知可信度',
-  };
-  const normalized = labels[level] ? level : 'unknown';
-  return <span className={`evidence-badge ${normalized}`}>{labels[normalized]}</span>;
-}
-
-function formatBool(value) {
-  if (value === true) return 'yes';
-  if (value === false) return 'no';
-  return 'unknown';
-}
-
-function riskPromptText(code) {
-  const prompts = {
-    low_evidence_exact: '完整料号命中，但图片证据较弱，需人工核对。',
-    unknown_evidence_exact: '完整料号命中，但图片证据未知，需人工核对。',
-    low_evidence_weak: '弱料号匹配且证据较弱，可能不是当前型号。',
-    near_miss_part_number: '相近料号风险，可能不是当前型号。',
-    no_part_number_match: '图片未匹配当前料号，请谨慎使用。',
-  };
-  return prompts[code] || '该候选图需要确认风险后才能生成。';
-}
-
-function StatusBadge({ status }) {
-  const config = WORKFLOW_STATUS[status] || WORKFLOW_STATUS.idle;
-  return <span className={`status-badge ${config.tone}`}>{config.label}</span>;
-}
-
-function OriginPill({ job }) {
-  const o = job?.params?.model_origin;
-  const label = appearanceOriginLabel(o);
-  const tone =
-    o === 'official_cad' ? 'origin-official'
-      : o === 'series_template' ? 'origin-series'
-        : o === 'image_approximated' ? 'origin-image'
-          : o === 'image_search_approximated' || o === 'image_upload_approximated' ? 'origin-image'
-            : o === 'third_party_cad' ? 'origin-third'
-              : 'origin-generic';
-  return <span className={`origin-pill ${tone}`}>{label}</span>;
-}
-
-function appearanceOriginLabel(origin) {
-  if (origin === 'official_cad') return '官方 CAD';
-  if (origin === 'series_template') return '系列模板近似模型';
-  if (origin === 'image_approximated') return '图片驱动外观近似模型';
-  if (origin === 'image_search_approximated') return '搜索图片驱动外观近似 CAD';
-  if (origin === 'image_upload_approximated') return '上傳圖片驅動外觀近似';
-  if (origin === 'generic_mvp') return '通用参数化白模';
-  if (origin === 'third_party_cad') return '第三方 CAD';
-  if (origin === 'parametric_mvp') return '通用参数化近似（旧）';
-  return '工程近似模型';
-}
-
-function AppearanceDetailPanel({ job }) {
-  const p = job?.params || {};
-  const ap = p.appearance_pipeline;
-  if (!ap?.used && !p.template_name) return null;
-  const vm = p.visual_match || {};
-  const imgSum = p.image_feature_summary;
-  const iff = imgSum?.feature_flags || {};
-  const uploadFeat = p.model_origin === 'image_upload_approximated';
-  return (
-    <>
-      <div className="section-label">外形与模板</div>
-      <div className="audit-card appearance-detail-card">
-        {uploadFeat && imgSum && (
-          <>
-            <div className="section-label subtle">上傳圖片特徵</div>
-            <AuditRow label="檔名" value={p.uploaded_file_name || '—'} mono />
-            <AuditRow label="主色（dominant_color）" value={String(imgSum.dominant_color ?? '—')} />
-            <AuditRow label="正面佈局（front_face_layout）" value={JSON.stringify(imgSum.front_face_layout || {})} />
-            <AuditRow label="特徵旗標（feature_flags）" value={JSON.stringify(iff)} />
-            {Array.isArray(imgSum.warnings) && imgSum.warnings.length > 0 ? (
-              <AuditRow label="影像警告" value={imgSum.warnings.join('；')} />
-            ) : null}
-            {Array.isArray(p.visual_recipe?.warnings) && p.visual_recipe.warnings.length > 0 ? (
-              <AuditRow label="配方警告" value={p.visual_recipe.warnings.join('；')} />
-            ) : null}
-          </>
-        )}
-        <AuditRow label="模板名称" value={p.template_name || ap?.template_name || '—'} />
-        <AuditRow label="外观置信度" value={p.appearance_confidence || '—'} />
-        <AuditRow label="匹配来源" value={vm.selection_reason || ap?.selection_reason || '—'} />
-        <AuditRow label="预览色（示意）" value={p.preview_style?.base_color || ap?.preview_color || '—'} />
-        <AuditRow label="几何基础" value={p.geometry_basis || '—'} />
-        <AuditRow label="制造精度等级" value={p.manufacturing_accuracy || '—'} />
-        {p.image_search_context?.search && (
-          <>
-            <div className="section-label subtle">圖片搜尋</div>
-            <pre className="ai-json-preview">{JSON.stringify(p.image_search_context.search, null, 2).slice(0, 900)}</pre>
-          </>
-        )}
-        {p.visual_recipe && (
-          <>
-            <div className="section-label subtle">視覺配方（visual_recipe）</div>
-            <pre className="ai-json-preview">{JSON.stringify(p.visual_recipe, null, 2).slice(0, 1400)}{JSON.stringify(p.visual_recipe, null, 2).length > 1400 ? '…' : ''}</pre>
-          </>
-        )}
-        {p.model_origin === 'series_template' && (
-          <div className="appearance-warn">该模型依据连接器系列模板生成，外形近似，非原厂精确 CAD。</div>
-        )}
-        {p.model_origin === 'image_approximated' && (
-          <div className="appearance-warn appearance-warn-strong">该模型依据图片外观近似生成，仅用于形态预览，不代表制造级精确 CAD。</div>
-        )}
-        {(p.model_origin === 'image_search_approximated' || p.model_origin === 'image_upload_approximated') && (
-          <div className="appearance-warn appearance-warn-strong">
-            視覺形狀語法（非逐型號模板庫）生成的外觀代理模型；尺寸為工程假設，須人工確認。
-          </div>
-        )}
-        {p.image_fallback_warning && (
-          <div className="appearance-warn">{p.image_fallback_warning}</div>
-        )}
-        {imgSum && !uploadFeat && (
-          <>
-            <div className="section-label subtle">图像特征摘要</div>
-            <pre className="ai-json-preview">{JSON.stringify(imgSum, null, 2).slice(0, 1200)}{JSON.stringify(imgSum, null, 2).length > 1200 ? '…' : ''}</pre>
-          </>
-        )}
-        {p.vision_report_summary && (
-          <>
-            <div className="section-label subtle">视觉理解（AI）</div>
-            <pre className="ai-json-preview">{JSON.stringify(p.vision_report_summary, null, 2).slice(0, 800)}</pre>
-          </>
-        )}
-      </div>
-    </>
-  );
-}
-
-function AiExtractionPanel({ job }) {
-  const ai = job?.params?.ai_extraction;
-  const dimensions = job?.params?.dimensions || {};
-  if (!ai) return null;
-  const fromAi = Object.entries(dimensions)
-    .filter(([, v]) => v?.source === 'ai_extracted')
-    .map(([k]) => k);
-  const extracted = ai.extracted || {};
-  const pending = (job.params?.unknown_fields || []).filter(Boolean);
-  return (
-    <>
-      <div className="section-label">AI 解析</div>
-      <div className="audit-card ai-card">
-        <div className="audit-head">
-          <Cpu size={15} />
-          <strong>狀態：{ai.status || '—'}{ai.enabled === false ? '（未啟用）' : ''}</strong>
-        </div>
-        <AuditRow label="模型" value={ai.model || '—'} />
-        <AuditRow label="服務商" value={ai.provider || '—'} />
-        {ai.error ? <AuditRow label="錯誤" value={ai.error} /> : null}
-        <div className="section-label subtle">AI 結構化提取</div>
-        <pre className="ai-json-preview">{JSON.stringify(extracted, null, 2)}</pre>
-        <div className="section-label subtle">標記為 ai_extracted 的參數</div>
-        <div className="mono-list">{fromAi.length ? fromAi.join(', ') : '（無）'}</div>
-        <div className="section-label subtle">仍需確認 / 未知欄位</div>
-        <div className="mono-list">{pending.length ? pending.join(', ') : '（無）'}</div>
-      </div>
-    </>
-  );
-}
-
-function SourcePanel({ job }) {
-  const params = job.params || {};
-  const uploadVisual = params.model_origin === 'image_upload_approximated';
-  return (
-    <div className={`source-card ${dangerSource(job) ? 'danger-source' : ''}`}>
-      <strong>{modelSourceTitle(job)}</strong>
-      <span>{modelSourceSubtitle(job)}</span>
-      {uploadVisual && (
-        <>
-          <em>圖片驅動外觀近似 CAD</em>
-          <span className="source-upload-note">
-            依據上傳圖片生成，僅用於外觀預覽，不代表原廠 CAD，不可直接作為製造尺寸依據。
-          </span>
-          {params.uploaded_file_name ? (
-            <small className="upload-filename">已選／上傳檔名（伺服端）：{params.uploaded_file_name}</small>
-          ) : null}
-        </>
-      )}
-      {params.source_type === 'official_candidate' && <em>检测到待审核 CAD 来源，但当前未用于生成。</em>}
-      {(params.model_origin === 'parametric_mvp' || params.model_origin === 'generic_mvp') && (
-        <em>参数化工程近似模型，不是原厂 CAD。</em>
-      )}
-      {params.model_origin === 'series_template' && <em>系列模板外形近似，不等同原厂精确几何。</em>}
-      {params.model_origin === 'image_approximated' && <em>依据图像的外观近似，非制造级精确模型。</em>}
-      {params.selection_reason && <small>选择策略：{params.selection_reason}</small>}
-    </div>
-  );
-}
-
-function ImageSearchSourcePanel({ job }) {
-  const params = job.params || {};
-  if (params.model_origin !== 'image_search_approximated') return null;
-  const imageSearch = params.image_search || {};
-  const context = params.image_search_context || {};
-  const selected = imageSearch.selected || context.rank?.selected || {};
-  const search = context.search || {};
-  const recipe = params.visual_recipe || {};
-  const features = params.image_feature_summary || {};
-  const consistency = params.generation_consistency || recipe.generation_consistency || {};
-  const downloadInfo = imageSearch.download || {};
-  const imageUrl = selected.image_url || selected.thumbnail_url || '';
-  const sourceUrl = selected.source_url || params.source_url || '';
-  const recipeSummary = {
-    color: recipe.color,
-    body_type: recipe.base_body?.type || recipe.base_body?.style,
-    confidence: recipe.confidence,
-    cavity_array: recipe.cavity_array,
-    front_shroud: recipe.front_shroud,
-    top_features: recipe.top_features,
-    side_features: recipe.side_features,
-  };
-  const unreliable = Boolean(
-    imageSearch.download_failed
-    || downloadInfo.decode_ok === false
-    || params.unsupported_visual_shape
-    || consistency.recipe_color_matches_image === false
-    || consistency.recipe_shape_matches_image === false,
-  );
-  return (
-    <>
-      <div className="section-label">搜索图片来源</div>
-      <div className="audit-card image-source-card">
-        <div className="image-source-alert">
-          该模型由搜索图片生成，仅为外观近似 CAD，不代表原厂 CAD，不可作为制造尺寸依据。
-        </div>
-        {unreliable ? (
-          <div className="image-conversion-alert">
-            选中图片未能可靠转换为 CAD，系统不会使用旧模板冒充。请重新选择图片或上传更清晰图片。
-          </div>
-        ) : null}
-        {recipe.base_body?.type === 'cylindrical_connector' ? (
-          <div className="image-source-alert soft">圆形/圆柱连接器视觉近似模型。</div>
-        ) : null}
-        {imageUrl ? (
-          <img className="selected-image-preview" src={imageUrl} alt={selected.title || 'selected connector reference'} />
-        ) : null}
-        <AuditRow label="image_url" value={imageUrl || '未记录'} mono />
-        <AuditRow label="source_url" value={sourceUrl || '未记录'} mono />
-        <AuditRow label="search_id" value={search.search_id || imageSearch.search_id || '未记录'} mono />
-        <AuditRow label="selected_candidate_id" value={selected.id || imageSearch.selected_candidate_id || '未记录'} mono />
-        <AuditRow label="selection_mode" value={search.provider === 'manual_url' ? 'manual_url' : 'selected_candidate'} />
-        <AuditRow label="provider" value={imageSearch.provider || search.provider || '未记录'} />
-        <AuditRow label="status" value={imageSearch.status || search.status || '未记录'} />
-        <AuditRow label="selected_image_sha256" value={params.selected_image_sha256 || selected.selected_image_sha256 || selected.sha256 || '未记录'} mono />
-        <AuditRow label="downloaded_filename" value={selected.downloaded_filename || downloadInfo.filename || '未记录'} mono />
-        <AuditRow label="decode_ok" value={String(selected.decode_ok ?? downloadInfo.decode_ok ?? 'unknown')} />
-        <AuditRow label="detected dominant_color" value={features.dominant_color || '未记录'} />
-        <AuditRow label="detected body_shape" value={features.body_shape || '未记录'} />
-        <AuditRow label="recipe body type" value={recipe.base_body?.type || recipe.base_body?.style || '未记录'} />
-        <AuditRow label="recipe color" value={recipe.color || '未记录'} />
-        <AuditRow label="consistency color" value={String(consistency.recipe_color_matches_image ?? 'unknown')} />
-        <AuditRow label="consistency shape" value={String(consistency.recipe_shape_matches_image ?? 'unknown')} />
-        <AuditRow label="generation_risk_accepted" value={String(Boolean(imageSearch.generation_risk_accepted))} />
-        <AuditRow label="accepted_risk_code" value={imageSearch.accepted_risk_code || '未记录'} />
-        <AuditRow label="selected_evidence_level" value={imageSearch.selected_evidence_level || '未记录'} />
-        {imageSearch.generation_risk_accepted ? (
-          <div className="candidate-near-alert">该模型基于带风险的候选图生成，已由用户确认风险。</div>
-        ) : null}
-        {imageSearch.selected_evidence_level === 'low' ? (
-          <div className="candidate-near-alert">候选图证据较弱，请人工核对图片是否对应目标料号。</div>
-        ) : null}
-        <div className="section-label subtle">selected_part_match</div>
-        <pre className="ai-json-preview">{JSON.stringify(imageSearch.selected_part_match || {}, null, 2)}</pre>
-        <div className="section-label subtle">selected_match_evidence</div>
-        <pre className="ai-json-preview">{JSON.stringify(imageSearch.selected_match_evidence || {}, null, 2)}</pre>
-        <div className="section-label subtle">generation_risk</div>
-        <pre className="ai-json-preview">{JSON.stringify(imageSearch.generation_risk || {}, null, 2)}</pre>
-        <div className="section-label subtle">generation_consistency</div>
-        <pre className="ai-json-preview">{JSON.stringify(consistency || {}, null, 2)}</pre>
-        <div className="section-label subtle">visual_recipe 摘要</div>
-        <pre className="ai-json-preview">{JSON.stringify(recipeSummary, null, 2)}</pre>
-      </div>
-    </>
-  );
-}
-
-function AuditPanel({ job }) {
-  const domain = job.source_domain || {};
-  const summary = job.source_audit_summary || {};
-  const params = job.params || {};
-  const category = summary.source_category || domain.category || params.source_domain_category || 'unknown';
-  const approved = Boolean(summary.is_approved_source ?? domain.is_approved ?? params.source_domain_approved);
-  const versions = params.available_versions || [];
-  return (
-    <>
-      <div className="section-label">来源审计</div>
-      <div className={`audit-card ${category === 'unknown' || category === 'third_party_repository' ? 'audit-warning' : ''}`}>
-        <div className="audit-head">
-          <Fingerprint size={15} />
-          <strong>{sourceCategoryText(category, params.model_origin)}</strong>
-        </div>
-        <AuditRow label="模型来源" value={originText(params.model_origin)} />
-        <AuditRow label="来源域名" value={domain.domain || '未提供'} />
-        <AuditRow label="来源分类" value={category} />
-        <AuditRow label="白名单来源" value={approved ? '是' : '否，需人工核验'} />
-        <AuditRow label="缓存使用" value={params.cached_file_used ? '已使用注册表缓存' : '未使用缓存'} />
-        <AuditRow label="缓存状态" value={params.registry_cache_status || '未记录'} />
-        <AuditRow label="选择策略" value={params.selection_reason || '未触发版本选择'} />
-        {params.registry_item_id && <AuditRow label="注册表 ID" value={params.registry_item_id} mono />}
-        {params.registry_candidate_id && <AuditRow label="候选 ID" value={params.registry_candidate_id} mono />}
-        {params.revision && <AuditRow label="修订版本" value={params.revision} />}
-        {params.version_label && <AuditRow label="版本标签" value={params.version_label} />}
-        {params.cached_file_sha256 && <AuditRow label="缓存 SHA256" value={params.cached_file_sha256} mono />}
-        {params.registry_sha256 && <AuditRow label="注册表 SHA256" value={params.registry_sha256} mono />}
-        {versions.length > 0 && (
-          <div className="version-list">
-            {versions.map((item) => (
-              <span key={item.registry_item_id}>{item.revision || 'unknown'} / {item.version_label || 'v?'} / {item.status}</span>
-            ))}
-          </div>
-        )}
-        {params.registry_item_id && <div className="audit-success-text">来源：已审核 CAD 来源库。</div>}
-        {params.registry_candidate_id && !params.registry_item_id && (
-          <div className="audit-warning-text">存在待审核 CAD 来源。管理员审核通过后，后续任务将优先使用官方 CAD。</div>
-        )}
-      </div>
-    </>
-  );
-}
-
-function RegistryPanel({ onClose }) {
-  const [items, setItems] = useState([]);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [query, setQuery] = useState('');
-  const [sourceCategoryFilter, setSourceCategoryFilter] = useState('');
-  const [cacheStatusFilter, setCacheStatusFilter] = useState('');
-  const [page, setPage] = useState(1);
-  const [pageData, setPageData] = useState({ page: 1, page_size: 20, total: 0, total_pages: 1 });
-  const [stats, setStats] = useState(null);
-  const [auditResult, setAuditResult] = useState(null);
-  const [cacheCheck, setCacheCheck] = useState(null);
-  const [itemCacheCheck, setItemCacheCheck] = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [cache, setCache] = useState(null);
-  const [error, setError] = useState('');
-  const [importText, setImportText] = useState('');
-  const [form, setForm] = useState({
-    manufacturer: 'Test',
-    part_number: '',
-    title: '',
-    source_url: 'local-test',
-    cad_url: 'file://backend/test_assets/sample_official.step',
-    file_type: 'step',
-    revision: 'unknown',
-    version_label: 'v1',
-    license_note: 'User should verify manufacturer CAD terms before production use.',
-  });
-
-  const refresh = async () => {
-    setError('');
-    try {
-      const filters = {
-        q: query,
-        status: statusFilter,
-        source_category: sourceCategoryFilter,
-        cache_status: cacheStatusFilter,
-        page: String(page),
-        page_size: '10',
-        sort_by: 'updated_at',
-        sort_order: 'desc',
-      };
-      const [data, statData] = await Promise.all([
-        listCadRegistryItems(filters),
-        getCadRegistryStats(),
-      ]);
-      setItems(data.items || []);
-      setPageData({
-        page: data.page || 1,
-        page_size: data.page_size || 10,
-        total: data.total || 0,
-        total_pages: data.total_pages || 1,
-      });
-      setStats(statData);
-    } catch (err) {
-      setError(err.message || '注册表加载失败');
-    }
-  };
-
-  const loadDetails = async (item) => {
-    setSelected(item);
-    setHistory([]);
-    setCache(null);
-    try {
-      const [historyData, cacheData] = await Promise.all([
-        getCadRegistryItemHistory(item.id),
-        getCadRegistryCache(item.id),
-      ]);
-      setHistory(historyData.events || []);
-      setCache(cacheData);
-    } catch (err) {
-      setError(err.message || '详情加载失败');
-    }
-  };
-
-  useEffect(() => {
-    refresh();
-  }, [statusFilter, sourceCategoryFilter, cacheStatusFilter, page]);
-
-  const createItem = async () => {
-    setError('');
-    try {
-      const created = await createCadRegistryItem(form);
-      await refresh();
-      await loadDetails(created);
-    } catch (err) {
-      setError(err.message || '新增失败');
-    }
-  };
-
-  const reviewItem = async (item, status) => {
-    setError('');
-    try {
-      const updated = await reviewCadRegistryItem(item.id, {
-        status,
-        reviewed_by: 'local_admin',
-        review_note: status === 'approved' ? 'Verified CAD source and cached file.' : 'Rejected by local admin.',
-      });
-      await refresh();
-      await loadDetails(updated);
-    } catch (err) {
-      setError(err.message || '审核失败');
-    }
-  };
-
-  const refreshCache = async (item) => {
-    setError('');
-    try {
-      const updated = await refreshCadRegistryCache(item.id);
-      await refresh();
-      await loadDetails(updated);
-    } catch (err) {
-      setError(err.message || '刷新缓存失败');
-    }
-  };
-
-  const deprecateItem = async (item) => {
-    setError('');
-    try {
-      const updated = await deprecateCadRegistryItem(item.id, { reason: 'Deprecated by local admin.' });
-      await refresh();
-      await loadDetails(updated);
-    } catch (err) {
-      setError(err.message || '废弃失败');
-    }
-  };
-
-  const exportRegistry = async () => {
-    const snapshot = await exportCadRegistry();
-    setImportText(JSON.stringify(snapshot, null, 2));
-  };
-
-  const importRegistry = async () => {
-    setError('');
-    try {
-      const result = await importCadRegistry(JSON.parse(importText));
-      setError(`导入完成：${result.imported} imported, ${result.skipped} skipped, ${result.errors} errors`);
-      await refresh();
-    } catch (err) {
-      setError(err.message || '导入失败');
-    }
-  };
-
-  const runCacheCheck = async () => {
-    setError('');
-    try {
-      const result = await checkRegistryCache();
-      setCacheCheck(result);
-    } catch (err) {
-      setError(err.message || '缓存巡检失败');
-    }
-  };
-
-  const repairCache = async () => {
-    setError('');
-    try {
-      const result = await repairRegistryCache();
-      setCacheCheck(result);
-      await refresh();
-    } catch (err) {
-      setError(err.message || '缓存修复失败');
-    }
-  };
-
-  const verifyAudit = async () => {
-    setError('');
-    try {
-      setAuditResult(await verifyRegistryAudit());
-    } catch (err) {
-      setError(err.message || '审计签名校验失败');
-    }
-  };
-
-  const loadAuditReport = async () => {
-    setError('');
-    try {
-      const report = await getRegistryAuditReport();
-      setImportText(JSON.stringify(report, null, 2));
-    } catch (err) {
-      setError(err.message || '审计报告生成失败');
-    }
-  };
-
-  const checkSelectedCache = async (item) => {
-    setError('');
-    try {
-      setItemCacheCheck(await checkRegistryItemCache(item.id));
-    } catch (err) {
-      setError(err.message || '单条缓存巡检失败');
-    }
-  };
-
-  const repairSelectedCache = async (item) => {
-    setError('');
-    try {
-      await repairRegistryItemCache(item.id);
-      await refresh();
-      await loadDetails(item);
-    } catch (err) {
-      setError(err.message || '单条缓存修复失败');
-    }
-  };
-
-  return (
-    <div className="registry-overlay">
-      <section className="registry-panel">
-        <div className="registry-header">
-          <div>
-            <h2>CAD 来源库</h2>
-            <p>维护已审核来源、文件缓存、审核历史和多版本记录。</p>
-          </div>
-          <button className="icon-button" onClick={onClose} title="关闭"><X size={16} /></button>
-        </div>
-        {error && <ErrorMessage error={error} />}
-        {stats && (
-          <div className="registry-stats">
-            <div><strong>{stats.total_items}</strong><span>总条目</span></div>
-            <div><strong>{stats.approved_count}</strong><span>approved</span></div>
-            <div><strong>{stats.pending_review_count}</strong><span>pending</span></div>
-            <div><strong>{stats.deprecated_count}</strong><span>deprecated</span></div>
-            <div><strong>{stats.by_cache_status?.cached || 0}</strong><span>缓存正常</span></div>
-            <div><strong>{(stats.by_cache_status?.missing || 0) + (stats.by_cache_status?.invalid || 0)}</strong><span>缓存异常</span></div>
-          </div>
-        )}
-        <div className="registry-audit-actions">
-          <button onClick={runCacheCheck}>全量缓存巡检</button>
-          <button onClick={repairCache}>修复异常缓存</button>
-          <button onClick={verifyAudit}>审核签名校验</button>
-          <button onClick={loadAuditReport}>生成审计报告</button>
-          <a href={downloadRegistryAuditReport()} download>下载审计报告</a>
-        </div>
-        {cacheCheck && <div className="audit-warning-text">缓存巡检：checked {cacheCheck.summary?.checked}, ok {cacheCheck.summary?.ok}, missing {cacheCheck.summary?.missing}, hash mismatch {cacheCheck.summary?.hash_mismatch}</div>}
-        {auditResult && (
-          <div className={auditResult.summary?.invalid ? 'audit-warning-text' : 'audit-success-text'}>
-            审计签名：valid {auditResult.summary?.valid}, invalid {auditResult.summary?.invalid}, legacy {auditResult.summary?.unsigned_legacy}
-          </div>
-        )}
-        <div className="registry-layout">
-          <div className="registry-form">
-            <div className="section-label">新增来源</div>
-            {[
-              ['manufacturer', '厂家'],
-              ['part_number', '连接器型号'],
-              ['title', '标题'],
-              ['source_url', '来源页面'],
-              ['cad_url', 'CAD URL / file://'],
-              ['file_type', '文件类型'],
-              ['revision', '修订号'],
-              ['version_label', '版本标签'],
-              ['license_note', '许可证备注'],
-            ].map(([key, label]) => (
-              <label key={key}>
-                <span>{label}</span>
-                <input value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })} />
-              </label>
-            ))}
-            <button className="confirm-button" onClick={createItem}>新增为待审核来源</button>
-            <div className="section-label">导入 / 导出</div>
-            <div className="registry-actions two">
-              <button onClick={exportRegistry}>导出快照</button>
-              <button onClick={importRegistry}>导入快照</button>
-            </div>
-            <textarea
-              className="notes-input registry-import"
-              value={importText}
-              onChange={(event) => setImportText(event.target.value)}
-              placeholder="导出的 registry/history JSON 快照"
-            />
-          </div>
-          <div className="registry-list">
-            <div className="registry-search">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 manufacturer / part number / title" />
-              <button className="small-action" onClick={() => { setPage(1); refresh(); }}>搜索</button>
-            </div>
-            <div className="registry-toolbar">
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-                <option value="">全部状态</option>
-                {['draft', 'pending_review', 'approved', 'rejected', 'deprecated', 'failed_review'].map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-              <select value={sourceCategoryFilter} onChange={(event) => setSourceCategoryFilter(event.target.value)}>
-                <option value="">全部来源</option>
-                {['official_manufacturer', 'authorized_distributor', 'third_party_repository', 'local_test', 'unknown'].map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-              <select value={cacheStatusFilter} onChange={(event) => setCacheStatusFilter(event.target.value)}>
-                <option value="">全部缓存</option>
-                {['cached', 'missing', 'invalid', 'not_cached'].map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-              <button className="small-action" onClick={refresh}>刷新列表</button>
-            </div>
-            <div className="registry-items">
-              {items.map((item) => (
-                <button key={item.id} className="registry-item" onClick={() => loadDetails(item)}>
-                  <strong>{item.manufacturer || 'Unknown'} / {item.part_number}</strong>
-                  <span>{item.source_category} / {item.status} / {item.revision || 'unknown'} / {item.version_label}</span>
-                  <small>{item.cache_status || 'not_cached'} / {item.updated_at}</small>
-                </button>
-              ))}
-              {!items.length && <div className="empty-panel">暂无注册表条目</div>}
-            </div>
-            <div className="pagination">
-              <button disabled={pageData.page <= 1} onClick={() => setPage(pageData.page - 1)}>上一页</button>
-              <span>{pageData.page} / {pageData.total_pages} · {pageData.total}</span>
-              <button disabled={pageData.page >= pageData.total_pages} onClick={() => setPage(pageData.page + 1)}>下一页</button>
-            </div>
-          </div>
-          <div className="registry-detail">
-            <div className="section-label">详情与审核</div>
-            {selected ? (
-              <>
-                <AuditRow label="ID" value={selected.id} mono />
-                <AuditRow label="型号" value={selected.part_number} />
-                <AuditRow label="状态" value={selected.status} />
-                <AuditRow label="修订号" value={selected.revision} />
-                <AuditRow label="版本标签" value={selected.version_label} />
-                <AuditRow label="缓存状态" value={selected.cache_status || cache?.cache_status || 'not_cached'} />
-                <AuditRow label="cached_at" value={selected.cached_at || '未缓存'} />
-                <AuditRow label="文件大小" value={selected.file_size_bytes ? `${selected.file_size_bytes} bytes` : '待计算'} />
-                <AuditRow label="SHA256" value={selected.sha256 || '待计算'} mono />
-                <AuditRow label="缓存文件" value={selected.cached_file_path || cache?.cached_file_path || '无'} mono />
-                <div className="registry-actions">
-                  <button onClick={() => reviewItem(selected, 'approved')}>审核通过</button>
-                  <button onClick={() => reviewItem(selected, 'rejected')}>驳回</button>
-                  <button onClick={() => refreshCache(selected)}>刷新缓存</button>
-                  <button onClick={() => checkSelectedCache(selected)}>巡检</button>
-                  <button onClick={() => repairSelectedCache(selected)}>修复</button>
-                  <button onClick={() => deprecateItem(selected)}>废弃</button>
-                </div>
-                {itemCacheCheck && (
-                  <div className="audit-warning-text">
-                    单条巡检：{itemCacheCheck.results?.[0]?.status} / {itemCacheCheck.results?.[0]?.message}
-                  </div>
-                )}
-                <div className="section-label">审核历史</div>
-                <div className="history-list">
-                  {history.map((event) => (
-                    <div key={event.id} className={event.signature && event.payload_hash ? '' : 'invalid-history'}>
-                      <strong>{event.event_type}</strong>
-                      <span>{event.actor} / {event.created_at}</span>
-                      <small>{event.note}</small>
-                      <small>{event.signature ? 'signature: recorded' : 'unsigned legacy event'}</small>
-                    </div>
-                  ))}
-                  {!history.length && <div className="empty-panel">暂无历史事件</div>}
-                </div>
-              </>
-            ) : (
-              <div className="empty-panel">选择一条来源记录查看详情</div>
-            )}
-          </div>
+        <div className="状态卡">
+          <span>当前为模拟数据演示</span>
+          <strong>不接真实平台接口，不做爬虫</strong>
         </div>
       </section>
-    </div>
-  );
-}
 
-function AuditRow({ label, value, mono = false }) {
-  return (
-    <div className="audit-row">
-      <span>{label}</span>
-      <strong className={mono ? 'mono-value' : ''}>{value || '未记录'}</strong>
-    </div>
-  );
-}
-
-function StatusPanel({ status, warning }) {
-  return (
-    <div className={`status-card ${status === 'needs_confirmation' ? 'warning-card' : ''}`}>
-      <StatusBadge status={status} />
-      <span>
-        {status === 'needs_confirmation'
-          ? warning || '当前为参数化近似预览版，以下尺寸需要确认后才能生成确认版 CAD。'
-          : '后端已返回生成结果。'}
-      </span>
-    </div>
-  );
-}
-
-function SuccessMessage({ job }) {
-  return (
-    <div className="success-card">
-      <CheckCircle2 size={15} />
-      <span>{job.params?.model_origin === 'official_cad' ? '官方 CAD 模型已就绪。' : '确认版 CAD 已生成。'}</span>
-    </div>
-  );
-}
-
-function ErrorMessage({ error }) {
-  return (
-    <div className="error">
-      <AlertTriangle size={15} />
-      <span>{error}</span>
-    </div>
-  );
-}
-
-function ParamGrid({ dimensions }) {
-  const entries = useMemo(() => Object.entries(dimensions), [dimensions]);
-  if (!entries.length) return <div className="empty-panel">暂无参数</div>;
-  return (
-    <div className="param-grid">
-      {entries.map(([key, data]) => (
-        <div key={key}>
-          <span>{key}</span>
-          <strong>{data?.value ?? '待确认'} {data?.unit || ''}</strong>
-          <em>{sourceLabel(data?.source)} / {data?.confidence || 'unknown'}</em>
+      <section className="搜索面板">
+        <div className="输入组 型号输入">
+          <label>型号输入</label>
+          <input value={型号} onChange={(event) => 设置型号(event.target.value)} placeholder="例如：1-968970-1 connector" />
         </div>
-      ))}
-    </div>
-  );
-}
-
-function ConfirmPanel({
-  job,
-  confirmValues,
-  setConfirmValues,
-  unknownNotes,
-  setUnknownNotes,
-  confirmNotes,
-  setConfirmNotes,
-  isBusy,
-  onConfirm,
-}) {
-  const dimensions = job.params?.dimensions || {};
-  return (
-    <>
-      <div className="confirm-alert">当前为参数化近似预览版，以下尺寸需要确认后才能生成确认版 CAD。</div>
-      <div className="section-label">确认尺寸</div>
-      <div className="confirm-grid">
-        {CONFIRM_FIELDS.map(([key, label, dimensionKey]) => {
-          const source = dimensions[dimensionKey]?.source;
-          return (
-            <label key={key}>
-              <span>
-                {label}
-                <small className={`source-tag ${source === 'user_confirmed' ? 'confirmed' : ''}`}>
-                  {sourceLabel(source)}
-                </small>
-              </span>
-              <input
-                type="number"
-                step="0.01"
-                value={confirmValues[key] ?? ''}
-                onChange={(event) => setConfirmValues({ ...confirmValues, [key]: event.target.value })}
-              />
-            </label>
-          );
-        })}
-      </div>
-      <div className="section-label">待确认参数</div>
-      <div className="unknown-inputs">
-        {(job.params?.unknown_fields || []).map((field) => (
-          <label key={field}>
-            <span>{field}</span>
-            <input
-              value={unknownNotes[field] || ''}
-              placeholder="填写说明，或输入 accepted 接受 MVP 近似"
-              onChange={(event) => setUnknownNotes({ ...unknownNotes, [field]: event.target.value })}
-            />
-          </label>
-        ))}
-      </div>
-      <textarea className="notes-input" value={confirmNotes} onChange={(event) => setConfirmNotes(event.target.value)} />
-      <button className="confirm-button" disabled={isBusy} onClick={onConfirm}>
-        {isBusy ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
-        <span>确认参数并重新生成 CAD</span>
-      </button>
-    </>
-  );
-}
-
-function FlatCadPanel({ job }) {
-  const params = job.params || {};
-  const fc = params.flat_cad;
-  const svgUrl = job.files?.flat_views_svg;
-  if (!fc?.enabled) return null;
-
-  const sc = fc.structure_completeness || {};
-  const missing = fc.missing_items || [];
-  const terminal = fc.terminal_insertion_summary || {};
-  const viewClass = fc.view_classification_summary || {};
-  const needManual = terminal.requires_manual_confirmation !== false || terminal.confidence !== 'high';
-  const sop = deriveSopSummary(fc, job);
-  const completenessText = structureCompletenessMessage(sc.status);
-
-  return (
-    <div className="flat-cad-panel">
-      <div className="flat-cad-head">
-        <div>
-          <h2>平面 CAD 视图 / 端子插入方向图</h2>
-          <p className="flat-cad-sub">由搜索图片/上传图片生成的工艺示意平面图，非原厂制造尺寸图。</p>
-        </div>
-        <span className={`flat-cad-pill ${sop.sop_ready}`}>SOP/WI：{sop.sop_ready}</span>
-      </div>
-
-      <div className="flat-cad-notice" role="alert">
-        <AlertTriangle size={17} />
-        <span>该平面 CAD 由搜索图片/上传图片生成，仅用于工艺示意、SOP、WI、端子插入方向参考，不可直接作为制造尺寸依据。</span>
-      </div>
-
-      <div className="flat-cad-section">
-        <h3>状态总览</h3>
-        <div className="flat-cad-meta">
-          <FlatInfo label="flat_cad.status" value={fc.status} />
-          <FlatInfo label="结构完整性" value={sc.status} tone={sc.status} />
-          <FlatInfo label="结构评分" value={sc.score != null ? sc.score : '未生成'} />
-          <FlatInfo label="model_origin" value={params.model_origin} />
-          <FlatInfo label="制造尺寸依据" value={params.manufacturing_accuracy || 'not_manufacturing_grade'} tone="caution" />
-          <FlatInfo label="visual_proxy_only" value={String(params.visual_proxy_only ?? true)} />
-          <FlatInfo label="人工确认" value={needManual ? '需要' : '可选'} tone={needManual ? 'caution' : 'complete'} />
-        </div>
-      </div>
-
-      <div className="flat-cad-section">
-        <h3>四视图总览 SVG 预览</h3>
-        {svgUrl ? (
-          <div className="flat-cad-svg-wrap">
-            <img className="flat-cad-svg" src={svgUrl} alt="四视图总览 SVG 预览" />
-          </div>
-        ) : (
-          <div className="flat-cad-unavailable">该任务未生成 SVG 预览，可在下载区检查平面 CAD 文件。</div>
-        )}
-      </div>
-
-      <div className="flat-cad-section">
-        <h3>视图下载区</h3>
-        <div className="flat-cad-file-grid">
-          <DownloadItem job={job} fileKey="flat_front_dxf" label="正面 / 对插面 DXF" />
-          <DownloadItem job={job} fileKey="flat_rear_dxf" label="反面 / 入线面 DXF" />
-          <DownloadItem job={job} fileKey="flat_top_dxf" label="俯视图 DXF" />
-          <DownloadItem job={job} fileKey="flat_side_dxf" label="侧视图 DXF" />
-          <DownloadItem job={job} fileKey="flat_insertion_dxf" label="端子插入方向 DXF" />
-          <DownloadItem job={job} fileKey="flat_views_svg" label="SVG 总览" />
-          <DownloadItem job={job} fileKey="flat_recipe_json" label="2D recipe JSON" icon="code" />
-          <DownloadItem job={job} fileKey="flat_view_classification_json" label="视图分类 JSON" icon="code" />
-          <DownloadItem job={job} fileKey="flat_terminal_insertion_json" label="端子插入判断 JSON" icon="code" />
-          <DownloadItem job={job} fileKey="flat_structure_report_json" label="结构完整性报告 JSON" icon="code" />
-        </div>
-      </div>
-
-      <div className="flat-cad-section flat-cad-two-col">
-        <div>
-          <h3>端子插入方向判断</h3>
-          <div className="flat-cad-detail-grid">
-            <FlatInfo label="recommended_insertion_face" value={terminal.recommended_insertion_face} />
-            <FlatInfo label="opposite_mating_face" value={terminal.opposite_mating_face} />
-            <FlatInfo label="insertion_direction" value={terminal.insertion_direction} />
-            <FlatInfo label="view_for_work_instruction" value={terminal.view_for_work_instruction || terminal.recommended_insertion_face} />
-            <FlatInfo label="view_for_pin_check" value={terminal.view_for_pin_check || terminal.opposite_mating_face || 'front_mating_face'} />
-            <FlatInfo label="confidence" value={terminal.confidence} tone={terminal.confidence === 'high' ? 'complete' : 'caution'} />
-            <FlatInfo label="requires_manual_confirmation" value={needManual ? 'true' : 'false'} tone={needManual ? 'caution' : 'complete'} />
-          </div>
-          <p className="flat-cad-reason">
-            推断依据：{viewClass.terminal_insertion_face_likely || terminal.recommended_insertion_face || '系统根据视图分类与线束入口线索推断'}。
-          </p>
-          {needManual ? (
-            <div className="flat-cad-warn" role="alert">
-              <AlertTriangle size={16} />
-              <span>端子插入方向为系统推断，必须由工艺/工程人员确认。</span>
-            </div>
-          ) : null}
-        </div>
-
-        <div>
-          <h3>结构完整性检查</h3>
-          <div className={`flat-cad-complete ${sc.status || 'partial'}`}>{completenessText}</div>
-          <div className="flat-cad-detail-grid compact">
-            <FlatInfo label="status" value={sc.status} tone={sc.status} />
-            <FlatInfo label="score" value={sc.score != null ? sc.score : '未生成'} />
-          </div>
-          {missing.length ? (
-            <div className="flat-cad-list">
-              <strong>missing_items</strong>
-              <ul>{missing.map((item) => <li key={item}>{item}</li>)}</ul>
-            </div>
-          ) : null}
-          {fc.warnings?.length ? (
-            <div className="flat-cad-list">
-              <strong>warnings</strong>
-              <ul>{fc.warnings.map((item) => <li key={item}>{item}</li>)}</ul>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="flat-cad-section">
-        <h3>SOP / WI 图纸可用性摘要</h3>
-        <div className="sop-summary-grid">
-          <FlatInfo label="正面孔位图" value={sop.front_view_available ? '可用' : '待确认'} tone={sop.front_view_available ? 'complete' : 'caution'} />
-          <FlatInfo label="反面入线图" value={sop.rear_view_available ? '可用' : '待确认'} tone={sop.rear_view_available ? 'complete' : 'caution'} />
-          <FlatInfo label="端子插入方向图" value={sop.insertion_direction_available ? '可用但需确认' : '待确认'} tone="caution" />
-          <FlatInfo label="腔位编号" value={sop.cavity_numbering_available ? '可用' : '待确认'} tone={sop.cavity_numbering_available ? 'complete' : 'caution'} />
-          <FlatInfo label="结构完整性" value={sop.structure_status} tone={sop.structure_status} />
-          <FlatInfo label="是否建议进入 SOP 生成" value={sop.sop_ready} tone={sop.sop_ready === 'no' ? 'insufficient' : 'caution'} />
-        </div>
-        <p className="flat-cad-reason">可作为 SOP/WI 示意图基础，需工程确认后使用。</p>
-      </div>
-
-      {fc.status === 'failed' && fc.error ? (
-        <p className="flat-cad-error">平面视图生成失败：{fc.error}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function SopWiPanel({
-  job,
-  isBusy,
-  onGenerate,
-  confirmationStatus,
-  confirmationEdits,
-  setConfirmationEdits,
-  onRefreshConfirmation,
-  onSaveConfirmationItem,
-  onResetConfirmation,
-  onExportSigned,
-}) {
-  const sop = job.params?.sop_wi;
-  const summary = sop?.checklist_summary || {};
-  if (!job.params?.flat_cad?.enabled) return null;
-  const hasDraft = Boolean(sop?.enabled && sop.status !== 'failed');
-  const cs = confirmationStatus;
-  const csSummary = cs?.summary || {};
-  const ready = cs?.overall_status === 'ready_for_internal_release';
-  const updateEdit = (itemId, patch) => setConfirmationEdits((prev) => ({ ...prev, [itemId]: { ...(prev[itemId] || {}), ...patch } }));
-  return (
-    <div className="sop-wi-panel">
-      <div className="sop-wi-head">
-        <div>
-          <strong>SOP/WI 草稿与工程确认</strong>
-          <span>该文件为 SOP/WI 草稿，必须经工程、工艺、品质确认后才能下发车间。</span>
-        </div>
-        {!hasDraft ? (
-          <button className="small-action" disabled={isBusy} onClick={onGenerate}>
-            {isBusy ? <Loader2 className="spin" size={14} /> : <FileText size={14} />}
-            <span>生成 SOP/WI 草稿</span>
+        <div className="上传区">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(event) => 设置图片名(event.target.files?.[0]?.name || '')}
+          />
+          <button type="button" className="次要按钮" onClick={() => fileRef.current?.click()}>
+            <Upload size={18} />
+            上传图片
           </button>
-        ) : null}
-      </div>
-      {hasDraft ? (
-        <>
-          <div className="sop-wi-meta">
-            <FlatInfo label="sop_wi.status" value={sop.status} />
-            <FlatInfo label="readiness.status" value={sop.readiness?.status} tone="caution" />
-            <FlatInfo label="can_release_to_shopfloor" value={String(sop.readiness?.can_release_to_shopfloor ?? false)} tone="insufficient" />
-            <FlatInfo label="manual_confirmation_required" value={String(sop.readiness?.manual_confirmation_required ?? true)} tone="caution" />
-            <FlatInfo label="required_count" value={summary.required_count ?? 0} />
-            <FlatInfo label="pending_count" value={summary.pending_count ?? 0} tone="caution" />
-            <FlatInfo label="high_risk_count" value={summary.high_risk_count ?? 0} tone="caution" />
+          <span>{图片名 || '可上传商品图或连接器照片用于后续识别'}</span>
+        </div>
+        <button type="button" className="搜索按钮" onClick={() => 设置已搜索(true)}>
+          <Search size={19} />
+          搜索
+        </button>
+      </section>
+
+      <section className="筛选面板">
+        <div className="筛选块">
+          <SlidersHorizontal size={18} />
+          <span>平台筛选</span>
+          <div className="分段控件">
+            {平台选项.map((选项) => (
+              <button key={选项} className={平台 === 选项 ? '已选' : ''} onClick={() => 设置平台(选项)}>
+                {选项}
+              </button>
+            ))}
           </div>
-          {cs ? (
-            <>
-              <div className={`confirmation-release ${ready ? 'ready' : 'blocked'}`}>
-                {ready
-                  ? '确认项已完成，可进入企业内部下发审批流程。仍需按公司流程批准后下发。'
-                  : '仍有确认项未完成或被驳回，不允许下发车间。'}
-              </div>
-              <div className="sop-wi-meta">
-                <FlatInfo label="overall_status" value={cs.overall_status} tone={ready ? 'complete' : 'caution'} />
-                <FlatInfo label="required_count" value={csSummary.required_count ?? 0} />
-                <FlatInfo label="confirmed_count" value={csSummary.confirmed_count ?? 0} tone="complete" />
-                <FlatInfo label="pending_count" value={csSummary.pending_count ?? 0} tone="caution" />
-                <FlatInfo label="rejected_count" value={csSummary.rejected_count ?? 0} tone={csSummary.rejected_count ? 'insufficient' : ''} />
-                <FlatInfo label="high_risk_count" value={csSummary.high_risk_count ?? 0} tone="caution" />
-                <FlatInfo label="can_enter_release_workflow" value={String(cs.can_enter_release_workflow ?? false)} tone={ready ? 'complete' : 'caution'} />
-                <FlatInfo label="can_release_to_shopfloor" value={String(cs.can_release_to_shopfloor ?? false)} tone="insufficient" />
-              </div>
-              <div className="confirmation-actions">
-                <button className="small-action" onClick={onRefreshConfirmation}>刷新确认状态</button>
-                <button className="small-action secondary" onClick={onResetConfirmation}>重置确认状态</button>
-                <button className="small-action" disabled={isBusy} onClick={onExportSigned}>导出带签核状态 SOP/WI</button>
-              </div>
-              <div className="confirmation-table-wrap">
-                <table className="confirmation-table">
-                  <thead>
-                    <tr>
-                      <th>category</th>
-                      <th>label</th>
-                      <th>risk</th>
-                      <th>status</th>
-                      <th>confirmed_by</th>
-                      <th>role</th>
-                      <th>note</th>
-                      <th>confirmed_at</th>
-                      <th>save</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(cs.items || []).map((item) => {
-                      const edit = confirmationEdits[item.id] || {};
-                      return (
-                        <tr key={item.id} className={`hazard-${item.risk_level || 'medium'} status-${edit.status || item.status}`}>
-                          <td>{item.category}{item.required ? ' *' : ''}</td>
-                          <td>{item.label}</td>
-                          <td>{item.risk_level}</td>
-                          <td>
-                            <select value={edit.status ?? item.status} onChange={(event) => updateEdit(item.id, { status: event.target.value })}>
-                              <option value="pending">pending / 待确认</option>
-                              <option value="confirmed">confirmed / 已确认</option>
-                              <option value="rejected">rejected / 驳回</option>
-                              <option value="not_applicable">not_applicable / 不适用</option>
-                            </select>
-                          </td>
-                          <td><input value={edit.confirmed_by ?? item.confirmed_by ?? ''} onChange={(event) => updateEdit(item.id, { confirmed_by: event.target.value })} /></td>
-                          <td>
-                            <select value={edit.role ?? item.role ?? 'engineering'} onChange={(event) => updateEdit(item.id, { role: event.target.value })}>
-                              <option value="engineering">engineering / 工程</option>
-                              <option value="process">process / 工艺</option>
-                              <option value="quality">quality / 品质</option>
-                            </select>
-                          </td>
-                          <td><input value={edit.note ?? item.note ?? ''} onChange={(event) => updateEdit(item.id, { note: event.target.value })} /></td>
-                          <td>{item.confirmed_at || '—'}</td>
-                          <td><button className="small-action" onClick={() => onSaveConfirmationItem(item)}>保存</button></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : (
-            <div className="sop-wi-empty">确认状态载入中，或可点击刷新确认状态初始化。</div>
-          )}
-          {sop.warnings?.length ? (
-            <ul className="sop-wi-warnings">
-              {sop.warnings.map((warning) => <li key={warning}>{warning}</li>)}
-            </ul>
-          ) : null}
-          <div className="sop-wi-downloads">
-            <DownloadItem job={job} fileKey="sop_wi_draft_html" label="SOP/WI HTML" icon="code" />
-            <DownloadItem job={job} fileKey="sop_wi_draft_json" label="SOP/WI JSON" icon="code" />
-            <DownloadItem job={job} fileKey="sop_wi_summary_md" label="Summary Markdown" icon="code" />
-            <DownloadItem job={job} fileKey="sop_wi_confirmation_checklist" label="工程确认清单 JSON" icon="code" />
-            <DownloadItem job={job} fileKey="confirmation_status" label="confirmation_status.json" icon="code" />
-            <DownloadItem job={job} fileKey="sop_wi_assets_manifest" label="资产清单 JSON" icon="code" />
-            <DownloadItem job={job} fileKey="sop_wi_signed_html" label="sop_wi_signed.html" icon="code" />
-            <DownloadItem job={job} fileKey="sop_wi_signed_summary_md" label="sop_wi_signed_summary.md" icon="code" />
-            <DownloadItem job={job} fileKey="sop_wi_draft_pdf" label="SOP/WI PDF" />
-          </div>
-        </>
-      ) : (
-        <div className="sop-wi-empty">当前 job 尚未生成 SOP/WI 草稿；可用现有 flat CAD 结果补生成。</div>
-      )}
-    </div>
-  );
-}
+        </div>
+        <div className="筛选块">
+          <ArrowUpDown size={18} />
+          <span>排序方式</span>
+          <select value={排序} onChange={(event) => 设置排序(event.target.value)}>
+            <option value="价格">按价格排序</option>
+            <option value="发货地">按发货地排序</option>
+          </select>
+        </div>
+        <div className="筛选块 目标地">
+          <MapPin size={18} />
+          <span>目标收货地</span>
+          <input value={目标地} onChange={(event) => 设置目标地(event.target.value)} placeholder="例如：浙江 宁波" />
+        </div>
+      </section>
 
-function DownloadPanel({ job }) {
-  const groups = [
-    {
-      title: 'A. 3D / 原有文件',
-      items: [
-        ['model_step', 'model.step'],
-        ['model_stl', 'model.stl'],
-        ['drawing_dxf', 'drawing.dxf'],
-        ['params_json', 'params.json', 'code'],
-        ['source_manifest', 'source_manifest.json', 'shield'],
-      ],
-    },
-    {
-      title: 'B. 搜索/图片视觉文件',
-      items: [
-        ['image_search_results', 'image_search_results.json', 'code'],
-        ['selected_image', 'selected_image.json', 'code'],
-        ['image_features', 'image_features.json', 'code'],
-        ['vision_report', 'vision_report.json', 'code'],
-        ['visual_recipe', 'visual_recipe.json', 'code'],
-      ],
-    },
-    {
-      title: 'C. 平面 CAD 工程视图',
-      items: [
-        ['flat_front_dxf', 'connector_front_view.dxf'],
-        ['flat_rear_dxf', 'connector_rear_view.dxf'],
-        ['flat_top_dxf', 'connector_top_view.dxf'],
-        ['flat_side_dxf', 'connector_side_view.dxf'],
-        ['flat_insertion_dxf', 'connector_insertion_direction.dxf'],
-        ['flat_views_svg', 'connector_flat_views.svg'],
-      ],
-    },
-    {
-      title: 'D. 平面判断与报告',
-      items: [
-        ['flat_recipe_json', 'connector_2d_recipe.json', 'code'],
-        ['flat_view_classification_json', 'connector_view_classification.json', 'code'],
-        ['flat_terminal_insertion_json', 'terminal_insertion.json', 'code'],
-        ['flat_structure_report_json', 'structure_completeness_report.json', 'code'],
-      ],
-    },
-    {
-      title: 'E. SOP/WI 草稿包',
-      items: [
-        ['sop_wi_draft_html', 'sop_wi_draft.html', 'code'],
-        ['sop_wi_draft_json', 'sop_wi_draft.json', 'code'],
-        ['sop_wi_summary_md', 'sop_wi_summary.md', 'code'],
-        ['sop_wi_confirmation_checklist', 'engineering_confirmation_checklist.json', 'code'],
-        ['confirmation_status', 'confirmation_status.json', 'code'],
-        ['sop_wi_assets_manifest', 'sop_wi_assets_manifest.json', 'code'],
-        ['sop_wi_signed_html', 'sop_wi_signed.html', 'code'],
-        ['sop_wi_signed_json', 'sop_wi_signed.json', 'code'],
-        ['sop_wi_signed_summary_md', 'sop_wi_signed_summary.md', 'code'],
-        ['sop_wi_signed_pdf', 'sop_wi_signed.pdf'],
-        ['sop_wi_draft_pdf', 'sop_wi_draft.pdf'],
-      ],
-    },
-  ];
+      <section className="结果概览">
+        <div>
+          <strong>{已搜索 ? `${结果.length} 条商品结果` : '等待搜索'}</strong>
+          <span>价格异常 {异常数量} 条，相近型号或高风险 {高风险数量} 条</span>
+        </div>
+        <p>价格异常项不会排在第一位；采购前请核对型号、规格、库存、税费、交期和供应商资质。</p>
+      </section>
 
-  return (
-    <>
-      <div className="section-label">导出文件</div>
-      <div className="download-groups">
-        {groups.map((group) => (
-          <DownloadGroup key={group.title} title={group.title} items={group.items} job={job} />
+      <section className="结果网格">
+        {结果.map((商品) => (
+          <article className={`商品卡 ${商品.异常价格 ? '价格异常' : ''}`} key={商品.id}>
+            <div className="图片框">
+              <img src={商品.图片} alt={商品.标题} />
+              <span className={`平台标签 平台-${商品.平台}`}>{商品.平台}</span>
+            </div>
+            <div className="商品内容">
+              <h2>{商品.标题}</h2>
+              <div className="店铺行">
+                <span>{商品.店铺}</span>
+                <span>{商品.发货地}</span>
+              </div>
+              <div className="价格行">
+                <strong>￥{商品.价格.toFixed(2)}</strong>
+                <span>匹配度 {商品.匹配度}%</span>
+              </div>
+              <div className="库存行">
+                <span>{商品.库存}</span>
+                <span>{商品.起订量}</span>
+              </div>
+              <div className="参数行">
+                {商品.参数.map((参数) => <span key={参数}>{参数}</span>)}
+              </div>
+              <div className="风险行">
+                {商品.风险.map((风险) => (
+                  <span className={风险.includes('异常') || 风险.includes('相近') || 风险.includes('非目标') ? '高风险' : ''} key={风险}>
+                    <ShieldAlert size={13} />
+                    {风险}
+                  </span>
+                ))}
+              </div>
+              <a className="商品链接" href={商品.链接} target="_blank" rel="noreferrer">
+                打开商品链接
+                <ExternalLink size={16} />
+              </a>
+            </div>
+          </article>
         ))}
-      </div>
-    </>
+      </section>
+    </main>
   );
-}
-
-function FlatInfo({ label, value, tone = '' }) {
-  return (
-    <div className={`flat-info ${tone || ''}`}>
-      <span>{label}</span>
-      <strong>{value ?? '未生成'}</strong>
-    </div>
-  );
-}
-
-function deriveSopSummary(fc, job) {
-  const files = job.files || {};
-  const sc = fc.structure_completeness || {};
-  const terminal = fc.terminal_insertion_summary || {};
-  const structureStatus = sc.status || 'partial';
-  const hasTerminal = Boolean(files.flat_insertion_dxf || terminal.recommended_insertion_face);
-  return {
-    front_view_available: Boolean(files.flat_front_dxf),
-    rear_view_available: Boolean(files.flat_rear_dxf),
-    insertion_direction_available: hasTerminal,
-    cavity_numbering_available: Boolean(files.flat_front_dxf && files.flat_rear_dxf),
-    structure_status: structureStatus,
-    sop_ready: structureStatus === 'insufficient' ? 'no' : 'caution',
-  };
-}
-
-function structureCompletenessMessage(status) {
-  if (status === 'complete') return '结构视图完整：正面、反面、俯视、侧视、端子插入方向均已生成。';
-  if (status === 'insufficient') return '结构视图不足，不建议用于 SOP。';
-  return '结构视图部分完整，需要补充确认。';
-}
-
-function DownloadGroup({ title, items, job }) {
-  return (
-    <div className="download-group">
-      <h3>{title}</h3>
-      <div className="download-list">
-        {items.map(([fileKey, label, icon]) => (
-          <DownloadItem key={fileKey} job={job} fileKey={fileKey} label={label} icon={icon} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DownloadItem({ job, fileKey, label, icon = 'download' }) {
-  const available = Boolean(job.files?.[fileKey]);
-  const Icon = icon === 'code' ? Code : icon === 'shield' ? ShieldCheck : Download;
-  if (!available) {
-    return (
-      <div className="download-item disabled" title="该任务未生成此文件">
-        <span>{label}</span>
-        <small>该任务未生成此文件</small>
-      </div>
-    );
-  }
-  return (
-    <a className="download-item" href={fileUrl(job, fileKey)} download>
-      <span>{label}</span>
-      <Icon size={14} />
-    </a>
-  );
-}
-
-function modelSourceTitle(job) {
-  const params = job.params || {};
-  if (params.model_origin === 'official_cad') return '官方 CAD 模型';
-  if (params.model_origin === 'third_party_cad' || params.source_type === 'third_party') return '第三方 CAD 模型';
-  if (params.model_origin === 'series_template') return '系列模板近似模型';
-  if (params.model_origin === 'image_approximated') return '图片驱动外观近似';
-  if (params.model_origin === 'image_search_approximated') return '搜索图片驱动外观近似 CAD';
-  if (params.model_origin === 'image_upload_approximated') return '上傳圖片驅動外觀近似模型';
-  if (params.model_origin === 'generic_mvp') return '通用参数化白模';
-  return '参数化工程近似模型';
-}
-
-function modelSourceSubtitle(job) {
-  const params = job.params || {};
-  if (params.model_origin === 'official_cad') return params.cached_file_used ? '来源：已审核 CAD 来源库缓存' : '来源：厂家官网 / 授权来源，状态：确认版';
-  if (params.model_origin === 'third_party_cad' || params.source_type === 'third_party') return '第三方模型，需核验';
-  if (params.model_origin === 'series_template') return '系列模板外形近似，非原厂 CAD；关键尺寸需确认';
-  if (params.model_origin === 'image_approximated') return '依据上传图像的外观近似模型，非计量级精确 CAD';
-  if (params.model_origin === 'image_search_approximated') return '该模型由搜索图片生成，仅为外观近似 CAD，不代表原厂 CAD，不可作为制造尺寸依据。';
-  if (params.model_origin === 'image_upload_approximated') return '依上傳圖片之外觀近似；須人工確認尺寸';
-  if (params.model_origin === 'generic_mvp') return '升级版通用参数化白模；仅工程近似预览';
-  return '需人工确认关键尺寸，不是原厂精确 CAD';
-}
-
-function originText(origin) {
-  if (origin === 'official_cad') return '官方 CAD';
-  if (origin === 'third_party_cad') return '第三方 CAD';
-  if (origin === 'series_template') return '系列模板近似';
-  if (origin === 'image_approximated') return '图片近似';
-  if (origin === 'image_search_approximated') return '搜索图片近似';
-  if (origin === 'image_upload_approximated') return '上傳圖片近似';
-  if (origin === 'generic_mvp') return '通用白模';
-  return '参数化 MVP';
-}
-
-function domainFromUrl(url) {
-  if (!url) return '';
-  try {
-    return new URL(url, window.location.origin).hostname;
-  } catch {
-    return '';
-  }
-}
-
-function sourceCategoryText(category, origin) {
-  if (origin === 'generic_mvp' || origin === 'series_template' || origin === 'image_approximated'
-    || origin === 'image_search_approximated' || origin === 'image_upload_approximated') {
-    return '參數化 / 視覺近似，不是原廠 CAD';
-  }
-  if (origin === 'parametric_mvp') return '参数化工程近似模型，不是原厂 CAD';
-  if (category === 'official_manufacturer') return '厂家官方来源';
-  if (category === 'authorized_distributor') return '授权经销商来源';
-  if (category === 'third_party_repository') return '第三方模型来源，必须人工核验后使用';
-  if (category === 'local_test') return '本地测试 CAD 来源';
-  return '未知来源 CAD，需人工核验';
-}
-
-function sourceLabel(source) {
-  if (source === 'user_confirmed') return '已确认';
-  if (source === 'default_mvp') return '默认值';
-  if (source === 'text_hint') return '文本线索';
-  if (source === 'ai_extracted') return 'AI 提取';
-  if (source === 'registry_template') return '外形注册表';
-  return '未知来源';
-}
-
-function dangerSource(job) {
-  const params = job.params || {};
-  const category = job.source_audit_summary?.source_category || job.source_domain?.category;
-  return params.source_type === 'third_party' || category === 'third_party_repository' || category === 'unknown';
 }

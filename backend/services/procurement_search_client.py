@@ -29,7 +29,7 @@ def _item(
     platform: str,
     title: str,
     shop_name: str,
-    price: float,
+    price: float | None,
     price_type: str = "normal",
     shipping_location: str,
     stock_status: str,
@@ -40,6 +40,27 @@ def _item(
     product_url: str,
     image_url: str,
 ) -> ProcurementResult:
+    tags = list(risk_tags)
+    verification_status = "search_summary_only"
+    if price is None or price_type == "unknown":
+        price_type = "unknown"
+        verification_status = "needs_confirmation"
+        for tag in ("价格待确认", "需打开链接确认"):
+            if tag not in tags:
+                tags.append(tag)
+    elif price_type == "normal":
+        for tag in ("搜索摘要价", "需打开链接确认"):
+            if tag not in tags:
+                tags.append(tag)
+    elif price_type == "abnormal":
+        for tag in ("价格异常", "需人工确认", "需打开链接确认"):
+            if tag not in tags:
+                tags.append(tag)
+    elif price_type in {"negotiable", "sample"}:
+        verification_status = "needs_confirmation"
+        for tag in ("价格待确认", "需打开链接确认"):
+            if tag not in tags:
+                tags.append(tag)
     return ProcurementResult(
         id=id,
         title=title,
@@ -48,6 +69,7 @@ def _item(
         price=price,
         currency="CNY",
         price_type=price_type,  # type: ignore[arg-type]
+        price_verification_status=verification_status,  # type: ignore[arg-type]
         shipping_location=shipping_location,
         stock_status=stock_status,
         moq=moq,
@@ -55,7 +77,7 @@ def _item(
         product_url=product_url,
         key_parameters=key_parameters,
         match_score=match_score,
-        risk_tags=risk_tags,
+        risk_tags=tags,
         updated_at=datetime.now(timezone.utc).isoformat(),
         source_type="mock",
         source_name="内置 mock 商品数据",
@@ -74,6 +96,7 @@ def mock_procurement_results(query: str) -> list[ProcurementResult]:
         _item(id="1688-002", platform="1688", title="6-968970-1 相近规格连接器胶壳 批发", shop_name="温州端子连接器批发", price=0.18, price_type="abnormal", shipping_location="浙江 温州", stock_status="库存 20000 件", moq=1000, key_parameters={"brand": "未知", "part_number": "6-968970-1", "positions": "4P", "color": "蓝色", "type": "批发低价"}, match_score=0.63, risk_tags=["相近型号风险", "价格异常", "参数不完整"], product_url="https://example.com/1688/6-968970-1", image_url=_svg_data_url("#2f73d8")),
         _item(id="jd-002", platform="京东", title=f"{part} 蓝色连接器套装 含端子密封塞", shop_name="汽车线束配件旗舰店", price=9.9, shipping_location="上海", stock_status="现货 88 套", moq=1, key_parameters={"brand": "兼容套装", "part_number": part, "positions": "4P", "color": "蓝色", "type": "套装"}, match_score=0.88, risk_tags=["完全匹配", "套装价格不可直接对比单壳"], product_url="https://example.com/jd/kit-1-968970-1", image_url=_svg_data_url("#2f73d8")),
         _item(id="taobao-003", platform="淘宝", title="圆形防水连接器 4芯 黑色 航空插头", shop_name="工业圆形航空插头店", price=18.5, shipping_location="浙江 宁波", stock_status="现货 260 件", moq=2, key_parameters={"brand": "未知", "part_number": "非目标料号", "positions": "4芯", "color": "黑色", "type": "圆形防水连接器"}, match_score=0.42, risk_tags=["图片相似但型号不匹配", "非目标料号"], product_url="https://example.com/taobao/round-connector", image_url=_svg_data_url("#18191b", "round")),
+        _item(id="other-002", platform="其他", title=f"{part} 授权渠道询价入口", shop_name="授权供应商询价", price=None, price_type="unknown", shipping_location="发货地待确认", stock_status="库存待确认", moq=1, key_parameters={"brand": "TE", "part_number": part, "positions": "4P", "color": "蓝色", "type": "询价入口"}, match_score=0.84, risk_tags=["完全匹配"], product_url="https://example.com/quote/1-968970-1", image_url=_svg_data_url("#2f73d8")),
     ]
 
 

@@ -40,9 +40,12 @@ def _first(row: dict[str, Any], canonical: str) -> str:
     return ""
 
 
-def parse_price(value: str) -> float:
+def parse_price(value: str) -> float | None:
+    text = (value or "").strip()
+    if not text or any(word in text for word in ("面议", "询价", "待确认", "暂无")):
+        return None
     match = re.search(r"\d+(?:\.\d+)?", value.replace(",", ""))
-    return float(match.group(0)) if match else 0.0
+    return float(match.group(0)) if match else None
 
 
 def parse_int(value: str, default: int = 1) -> int:
@@ -85,17 +88,22 @@ def normalize_offer_row(
 ) -> tuple[ProcurementResult | None, str | None]:
     title = _first(row, "title")
     price_text = _first(row, "price")
-    if not title or not price_text:
-        return None, f"第 {row_index} 行缺少商品标题或价格"
+    if not title:
+        return None, f"第 {row_index} 行缺少商品标题"
 
     platform = normalize_platform_label(_first(row, "platform") or platform_label)
     part_number = _first(row, "part_number")
     price = parse_price(price_text)
-    if price <= 0:
-        return None, f"第 {row_index} 行价格无效"
 
-    price_type = "abnormal" if price < 0.2 else "normal"
+    price_type = "unknown" if price is None else ("abnormal" if price < 0.2 or price >= 9999 else "normal")
     risk_tags = ["价格异常"] if price_type == "abnormal" else []
+    price_verification_status = "needs_confirmation" if price_type == "unknown" else "search_summary_only"
+    if price_type == "unknown":
+        risk_tags.extend(["价格待确认", "需打开链接确认"])
+    elif price_type == "normal":
+        risk_tags.extend(["搜索摘要价", "需打开链接确认"])
+    else:
+        risk_tags.extend(["需人工确认", "需打开链接确认"])
     match_score, match_tags = score_imported_offer(query_hint or part_number or title, title, part_number)
     for tag in match_tags:
         if tag not in risk_tags:
@@ -118,6 +126,7 @@ def normalize_offer_row(
             price=price,
             currency=_first(row, "currency") or "CNY",
             price_type=price_type,  # type: ignore[arg-type]
+            price_verification_status=price_verification_status,  # type: ignore[arg-type]
             shipping_location=_first(row, "shipping_location") or "未标注",
             stock_status=_first(row, "stock_status") or "需询价",
             moq=parse_int(_first(row, "moq"), 1),

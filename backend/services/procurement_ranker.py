@@ -36,6 +36,16 @@ def is_abnormal_price(result: ProcurementResult) -> bool:
     return result.price_type == "abnormal" or any("价格异常" in tag for tag in result.risk_tags)
 
 
+def price_sort_bucket(result: ProcurementResult) -> tuple[int, float]:
+    if result.price_type == "normal" and result.price is not None and result.price > 0:
+        return (0, float(result.price))
+    if result.price_type in {"unknown", "negotiable", "sample"} or result.price is None:
+        return (1, 1e12)
+    if is_abnormal_price(result):
+        return (2, float(result.price or 1e12))
+    return (1, float(result.price or 1e12))
+
+
 def sort_procurement_results(
     results: list[ProcurementResult],
     *,
@@ -47,11 +57,10 @@ def sort_procurement_results(
             results,
             key=lambda item: (
                 -location_score(item.shipping_location, target_location),
-                is_abnormal_price(item),
-                item.price,
+                price_sort_bucket(item),
                 -item.match_score,
             ),
         )
     if sort_by == "match":
-        return sorted(results, key=lambda item: (-item.match_score, is_abnormal_price(item), item.price))
-    return sorted(results, key=lambda item: (is_abnormal_price(item), item.price, -item.match_score))
+        return sorted(results, key=lambda item: (-item.match_score, price_sort_bucket(item)))
+    return sorted(results, key=lambda item: (price_sort_bucket(item), -item.match_score))

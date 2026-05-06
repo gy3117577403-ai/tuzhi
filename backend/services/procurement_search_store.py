@@ -14,7 +14,7 @@ _SEARCHES: dict[str, ProcurementSearchRecord] = {}
 
 def create_procurement_search(request: ProcurementSearchRequest) -> ProcurementSearchRecord:
     results = search_procurement(request)
-    normal_prices = [item.price for item in results if item.price_type != "abnormal"]
+    normal_prices = [item.price for item in results if item.price_type == "normal" and item.price is not None]
     platform_counts = dict(Counter(item.platform for item in results))
     recommended_count = sum(
         1

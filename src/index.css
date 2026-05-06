@@ -447,15 +447,26 @@ select:focus {
   gap: 4px;
 }
 
+.价格块 {
+  display: grid;
+  gap: 3px;
+}
+
 .价格行 strong {
   color: #b42318;
-  font-size: 24px;
+  font-size: 18px;
   line-height: 1;
 }
 
-.价格行 span {
+.价格块 span,
+.价格行 > span {
   color: #1f6f3a;
   font-weight: 900;
+}
+
+.价格行 strong.价格异常文本,
+.价格行 strong.价格待确认文本 {
+  color: #7f1d1d;
 }
 
 .参数行,

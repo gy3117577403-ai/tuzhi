@@ -183,11 +183,14 @@ export type ProcurementResult = {
   title: string;
   platform: string;
   shop_name: string;
-  price: number;
+  price: number | null;
   currency: string;
   price_type: string;
+  price_verification_status?: string;
   shipping_location: string;
+  shipping_verification_status?: string;
   stock_status: string;
+  stock_verification_status?: string;
   moq: number;
   image_url: string;
   product_url: string;

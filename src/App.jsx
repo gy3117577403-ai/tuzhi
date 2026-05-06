@@ -19,8 +19,31 @@ function platformClass(platform) {
 }
 
 function formatPrice(price, currency) {
+  if (price === null || price === undefined) return '价格待确认';
   const prefix = currency === 'CNY' ? '¥' : `${currency || ''} `;
   return `${prefix}${Number(price || 0).toFixed(2)}`;
+}
+
+function renderPriceBlock(item) {
+  if (item.price_type === 'abnormal') {
+    return {
+      value: '价格异常',
+      note: '需打开链接确认',
+      className: '价格异常文本',
+    };
+  }
+  if (item.price === null || item.price === undefined || item.price_type === 'unknown') {
+    return {
+      value: '价格待确认',
+      note: '打开链接查看',
+      className: '价格待确认文本',
+    };
+  }
+  return {
+    value: `搜索摘要价：${formatPrice(item.price, item.currency)}`,
+    note: '仅供参考',
+    className: '',
+  };
 }
 
 function hasRisk(item) {
@@ -131,7 +154,7 @@ export default function App() {
         </div>
         <div className="提示卡">
           <strong>采购风险提示</strong>
-          <span>采购结果来自搜索或报价数据，型号、参数、价格、库存和发货地需采购人员与供应商二次确认。</span>
+          <span>当前价格来自搜索摘要，仅供采购初筛。实际单价、库存、运费、税率和发货地需打开商品链接或联系供应商确认。</span>
         </div>
       </section>
 
@@ -256,7 +279,15 @@ export default function App() {
                 <span><MapPin size={13} />{item.shipping_location}</span>
               </div>
               <div className="价格行">
-                <strong>{formatPrice(item.price, item.currency)}</strong>
+                {(() => {
+                  const priceBlock = renderPriceBlock(item);
+                  return (
+                    <div className="价格块">
+                      <strong className={priceBlock.className}>{priceBlock.value}</strong>
+                      <span>{priceBlock.note}</span>
+                    </div>
+                  );
+                })()}
                 <span>匹配度 {Math.round((item.match_score || 0) * 100)}%</span>
               </div>
               <div className="信息行">
@@ -277,7 +308,7 @@ export default function App() {
                 ))}
               </div>
               <a className="商品链接" href={item.product_url} target="_blank" rel="noreferrer">
-                打开商品链接
+                打开链接确认价格
                 <ExternalLink size={16} />
               </a>
             </div>

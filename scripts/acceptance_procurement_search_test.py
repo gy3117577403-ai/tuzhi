@@ -59,7 +59,7 @@ def search(sort_by: str, platforms: list[str] | None = None) -> dict:
 def assert_price_sort(results: list[dict]) -> None:
     assert results, "price sort returned no results"
     assert results[0]["price_type"] != "abnormal", "abnormal price item must not rank first"
-    normal_prices = [item["price"] for item in results if item["price_type"] != "abnormal"]
+    normal_prices = [item["price"] for item in results if item["price_type"] == "normal" and item["price"] is not None]
     assert normal_prices == sorted(normal_prices), f"normal prices are not ascending: {normal_prices}"
 
 

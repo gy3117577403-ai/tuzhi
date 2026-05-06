@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 
 Platform = Literal["淘宝", "京东", "1688", "其他"]
 SortBy = Literal["price", "location", "match"]
-PriceType = Literal["normal", "abnormal", "negotiable", "sample"]
+PriceType = Literal["normal", "abnormal", "negotiable", "sample", "unknown"]
+PriceVerificationStatus = Literal["search_summary_only", "needs_confirmation"]
 SourceType = Literal["mock", "csv_upload", "excel_upload", "generic_json", "supplier_api"]
 AuthMode = Literal["none", "api_key", "bearer", "custom"]
 
@@ -26,11 +27,14 @@ class ProcurementResult(BaseModel):
     title: str
     platform: Platform
     shop_name: str
-    price: float
+    price: float | None = None
     currency: str = "CNY"
     price_type: PriceType = "normal"
+    price_verification_status: PriceVerificationStatus = "search_summary_only"
     shipping_location: str
+    shipping_verification_status: Literal["search_summary_only", "needs_confirmation"] = "search_summary_only"
     stock_status: str
+    stock_verification_status: Literal["search_summary_only", "needs_confirmation"] = "search_summary_only"
     moq: int
     image_url: str
     product_url: str

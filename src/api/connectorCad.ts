@@ -167,6 +167,70 @@ async function parseResponse(response: Response) {
   }
 }
 
+export type ProcurementSortBy = 'price' | 'location' | 'match';
+
+export type ProcurementSearchRequest = {
+  query: string;
+  target_location: string;
+  platforms: string[];
+  sort_by: ProcurementSortBy;
+  image_search_enabled?: boolean;
+};
+
+export type ProcurementResult = {
+  id: string;
+  title: string;
+  platform: string;
+  shop_name: string;
+  price: number;
+  currency: string;
+  price_type: string;
+  shipping_location: string;
+  stock_status: string;
+  moq: number;
+  image_url: string;
+  product_url: string;
+  key_parameters: Record<string, string | number>;
+  match_score: number;
+  risk_tags: string[];
+  updated_at: string;
+};
+
+export type ProcurementSearchResponse = {
+  search_id: string;
+  query: string;
+  target_location: string;
+  status: string;
+  provider: string;
+  sort_by: ProcurementSortBy;
+  results: ProcurementResult[];
+  summary: {
+    total: number;
+    platform_counts: Record<string, number>;
+    lowest_price: number | null;
+    recommended_count: number;
+  };
+  warnings: string[];
+};
+
+export async function searchProcurement(payload: ProcurementSearchRequest): Promise<ProcurementSearchResponse> {
+  const response = await fetch(`${API_BASE}/api/procurement/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response);
+}
+
+export async function getProcurementSearch(searchId: string): Promise<ProcurementSearchResponse> {
+  const response = await fetch(`${API_BASE}/api/procurement/search/${searchId}`);
+  return parseResponse(response);
+}
+
+export function procurementCsvUrl(searchId: string): string {
+  return `${API_BASE}/api/procurement/search/${searchId}/export.csv`;
+}
+
 export async function createTextConnectorJob(
   text: string,
   params?: Record<string, number>,

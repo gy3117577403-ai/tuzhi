@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from services.audit_report import build_audit_report, write_audit_report
@@ -73,6 +73,10 @@ from services.sop_wi_exporter import export_sop_wi_package
 from services.sop_wi_signoff_exporter import export_signed_sop_wi
 from services.registry_history import get_registry_item_history, verify_registry_history_signatures
 from services.registry_search import get_registry_stats, search_registry_items
+from services.procurement_exporter import procurement_search_to_csv
+from services.procurement_models import ProcurementSearchRequest
+from services.procurement_search_store import create_procurement_search as create_procurement_search_record
+from services.procurement_search_store import get_procurement_search as get_procurement_search_record
 
 app = FastAPI(title="Connector CAD Generator", version="0.2.0")
 cad_source_resolver = CadSourceResolver()
@@ -142,6 +146,10 @@ class ConfirmationItemPatchRequest(BaseModel):
     note: str = ""
     confirmed_by: str = ""
     role: Literal["engineering", "process", "quality"] | str = ""
+
+
+class ProcurementSearchApiRequest(ProcurementSearchRequest):
+    pass
 
 
 def _ai_extraction_skipped_block() -> dict[str, Any]:
@@ -232,6 +240,31 @@ def ai_api_test(payload: AiTestRequest) -> dict[str, Any]:
             "error_type": status["error_type"],
         },
     }
+
+
+@app.post("/api/procurement/search")
+def create_procurement_search(payload: ProcurementSearchApiRequest) -> dict[str, Any]:
+    query = (payload.query or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    record = create_procurement_search_record(payload.model_copy(update={"query": query}))
+    return record.model_dump()
+
+
+@app.get("/api/procurement/search/{search_id}")
+def get_procurement_search(search_id: str) -> dict[str, Any]:
+    return get_procurement_search_record(search_id).model_dump()
+
+
+@app.get("/api/procurement/search/{search_id}/export.csv")
+def export_procurement_search_csv(search_id: str) -> Response:
+    record = get_procurement_search_record(search_id)
+    csv_text = procurement_search_to_csv(record)
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="procurement_{search_id}.csv"'},
+    )
 
 
 @app.post("/api/connector-cad/jobs")

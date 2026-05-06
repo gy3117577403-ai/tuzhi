@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpDown, ExternalLink, ImagePlus, MapPin, Search, ShieldAlert, SlidersHorizontal } from 'lucide-react';
-import { procurementCsvUrl, searchProcurement } from './api/connectorCad';
+import { extractProcurementImageKeywords, procurementCsvUrl, searchProcurement } from './api/connectorCad';
 
 const PLATFORM_OPTIONS = ['全部', '淘宝', '京东', '1688', '其他'];
 const PLATFORM_VALUES = ['淘宝', '京东', '1688', '其他'];
@@ -34,6 +34,9 @@ export default function App() {
   const [platform, setPlatform] = useState('全部');
   const [sortBy, setSortBy] = useState('match');
   const [hideAbnormal, setHideAbnormal] = useState(true);
+  const [imageKeywordResult, setImageKeywordResult] = useState(null);
+  const [keywordText, setKeywordText] = useState('');
+  const [keywordBusy, setKeywordBusy] = useState(false);
   const [searchResult, setSearchResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -51,6 +54,49 @@ export default function App() {
         platforms: platform === '全部' ? PLATFORM_VALUES : [platform],
         sort_by: sortBy,
         image_search_enabled: Boolean(imageName),
+        source_types: ['mock'],
+      });
+      setSearchResult(data);
+    } catch (err) {
+      setError(err.message || '采购搜索失败，请稍后重试。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setImageName(file.name);
+    setKeywordBusy(true);
+    setError('');
+    setImageKeywordResult(null);
+    try {
+      const data = await extractProcurementImageKeywords(file);
+      setImageKeywordResult(data);
+      const firstKeyword = data.keywords?.[0] || '';
+      if (firstKeyword) setKeywordText(firstKeyword);
+    } catch (err) {
+      setError(err.message || '图片关键词识别失败，请换一张更清晰的图片。');
+    } finally {
+      setKeywordBusy(false);
+      event.target.value = '';
+    }
+  };
+
+  const searchWithKeyword = async () => {
+    const text = keywordText.trim();
+    if (!text) return;
+    setQuery(text);
+    setBusy(true);
+    setError('');
+    try {
+      const data = await searchProcurement({
+        query: text,
+        target_location: targetLocation.trim(),
+        platforms: platform === '全部' ? PLATFORM_VALUES : [platform],
+        sort_by: sortBy,
+        image_search_enabled: true,
         source_types: ['mock'],
       });
       setSearchResult(data);
@@ -104,19 +150,48 @@ export default function App() {
             type="file"
             accept="image/*"
             hidden
-            onChange={(event) => setImageName(event.target.files?.[0]?.name || '')}
+            onChange={handleImageUpload}
           />
           <button type="button" className="次要按钮" onClick={() => fileRef.current?.click()}>
             <ImagePlus size={18} />
             上传图片
           </button>
-          <span>{imageName || '图片识别搜索待接入，当前仅记录图片名称作为辅助信息。'}</span>
+          <span>{keywordBusy ? '正在识别采购关键词...' : imageName || '上传图片后将提取采购搜索关键词。'}</span>
         </div>
         <button type="button" className="搜索按钮" onClick={runSearch} disabled={busy || !query.trim()}>
           <Search size={19} />
           {busy ? '正在搜索...' : '搜索'}
         </button>
       </section>
+
+      {imageKeywordResult ? (
+        <section className="关键词区">
+          <div className="关键词标题">
+            <strong>识别出的采购关键词</strong>
+            <span>可信度：{imageKeywordResult.confidence}</span>
+          </div>
+          <div className="识别摘要">
+            <span>颜色：{imageKeywordResult.detected?.dominant_color || '未知'}</span>
+            <span>形状：{imageKeywordResult.detected?.shape || '未知'}</span>
+            <span>孔位：{imageKeywordResult.detected?.positions_candidate || '未识别'}</span>
+            <span>类型：{imageKeywordResult.detected?.connector_type || '连接器'}</span>
+          </div>
+          <div className="关键词标签">
+            {(imageKeywordResult.keywords || []).map((keyword) => (
+              <button type="button" key={keyword} onClick={() => setKeywordText(keyword)}>
+                {keyword}
+              </button>
+            ))}
+          </div>
+          <div className="关键词搜索">
+            <input value={keywordText} onChange={(event) => setKeywordText(event.target.value)} placeholder="可编辑采购关键词" />
+            <button type="button" className="搜索按钮" onClick={searchWithKeyword} disabled={busy || !keywordText.trim()}>
+              用该关键词搜索
+            </button>
+          </div>
+          <p>{imageKeywordResult.warnings?.[0] || '图片识别结果仅用于采购搜索，需人工确认。'}</p>
+        </section>
+      ) : null}
 
       <section className="筛选区">
         <div className="筛选块 平台块">
@@ -164,7 +239,7 @@ export default function App() {
         </div>
       </section>
 
-      {imageName ? <div className="图片提示">已选择图片：{imageName}。图片识别采购搜索将在后续阶段接入。</div> : null}
+      {imageName && !imageKeywordResult ? <div className="图片提示">已选择图片：{imageName}。</div> : null}
       {error ? <div className="错误提示">{error}</div> : null}
 
       <section className="结果网格">

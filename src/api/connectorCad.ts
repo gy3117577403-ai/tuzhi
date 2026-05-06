@@ -227,6 +227,31 @@ export async function searchProcurement(payload: ProcurementSearchRequest): Prom
   return parseResponse(response);
 }
 
+export type ProcurementImageKeywordsResponse = {
+  status: string;
+  keywords: string[];
+  detected: {
+    dominant_color?: string;
+    shape?: string;
+    positions_candidate?: string;
+    ocr_text?: string;
+    connector_type?: string;
+  };
+  confidence: 'low' | 'medium' | 'high' | string;
+  warnings: string[];
+  image_id?: string;
+};
+
+export async function extractProcurementImageKeywords(file: File): Promise<ProcurementImageKeywordsResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch(`${API_BASE}/api/procurement/image-keywords`, {
+    method: 'POST',
+    body: form,
+  });
+  return parseResponse(response);
+}
+
 export async function getProcurementSearch(searchId: string): Promise<ProcurementSearchResponse> {
   const response = await fetch(`${API_BASE}/api/procurement/search/${searchId}`);
   return parseResponse(response);

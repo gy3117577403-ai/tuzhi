@@ -74,6 +74,7 @@ from services.sop_wi_signoff_exporter import export_signed_sop_wi
 from services.registry_history import get_registry_item_history, verify_registry_history_signatures
 from services.registry_search import get_registry_stats, search_registry_items
 from services.procurement_exporter import procurement_search_to_csv
+from services.procurement_image_keywords import extract_procurement_image_keywords
 from services.procurement_importer import import_procurement_file
 from services.procurement_models import (
     ProcurementSearchRequest,
@@ -279,6 +280,11 @@ def export_procurement_search_csv(search_id: str) -> Response:
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="procurement_{search_id}.csv"'},
     )
+
+
+@app.post("/api/procurement/image-keywords")
+async def procurement_image_keywords(file: UploadFile = File(...)) -> dict[str, Any]:
+    return await extract_procurement_image_keywords(file)
 
 
 @app.post("/api/procurement/import")

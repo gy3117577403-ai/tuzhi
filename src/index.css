@@ -27,10 +27,20 @@ select {
 .采购页面 {
   min-height: 100vh;
   padding: 32px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(246, 244, 239, 0.96)),
-    radial-gradient(circle at 20% 10%, rgba(22, 101, 52, 0.08), transparent 26%),
-    #f6f4ef;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(246, 244, 239, 0.96)), #f6f4ef;
+}
+
+.顶部区域,
+.搜索面板,
+.数据源面板,
+.筛选面板,
+.操作栏,
+.结果概览,
+.结果网格,
+.错误提示 {
+  max-width: 1240px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .顶部区域 {
@@ -38,8 +48,7 @@ select {
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  max-width: 1240px;
-  margin: 0 auto 22px;
+  margin-bottom: 22px;
 }
 
 .小标题 {
@@ -62,19 +71,29 @@ h1 {
   font-size: 17px;
 }
 
-.状态卡 {
-  min-width: 240px;
-  padding: 16px;
+.状态卡,
+.搜索面板,
+.数据源面板,
+.筛选面板,
+.结果概览 {
   border: 1px solid #ded8ca;
   border-radius: 8px;
   background: #fffdf8;
-  display: grid;
-  gap: 6px;
-  box-shadow: 0 10px 28px rgba(55, 45, 30, 0.06);
+  box-shadow: 0 10px 28px rgba(55, 45, 30, 0.05);
 }
 
-.状态卡 span {
-  color: #7a746a;
+.状态卡 {
+  min-width: 250px;
+  padding: 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.状态卡 span,
+.来源列表 span,
+.结果概览 span,
+.结果概览 p {
+  color: #746d62;
   font-size: 13px;
 }
 
@@ -83,23 +102,13 @@ h1 {
   font-size: 15px;
 }
 
-.搜索面板,
-.筛选面板,
-.结果概览 {
-  max-width: 1240px;
-  margin: 0 auto 16px;
-  border: 1px solid #ded8ca;
-  border-radius: 8px;
-  background: #fffdf8;
-  box-shadow: 0 10px 28px rgba(55, 45, 30, 0.05);
-}
-
 .搜索面板 {
   padding: 18px;
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(260px, 0.75fr) auto;
   gap: 14px;
   align-items: end;
+  margin-bottom: 16px;
 }
 
 .输入组,
@@ -151,6 +160,7 @@ select:focus {
 .搜索按钮,
 .次要按钮,
 .商品链接,
+.导出按钮,
 .分段控件 button {
   border: 0;
   border-radius: 7px;
@@ -170,7 +180,8 @@ select:focus {
   font-weight: 900;
 }
 
-.次要按钮 {
+.次要按钮,
+.导出按钮 {
   height: 42px;
   padding: 0 14px;
   color: #244b32;
@@ -178,19 +189,70 @@ select:focus {
   font-weight: 800;
 }
 
+.导出按钮 {
+  color: #fff;
+  background: #1b1b18;
+}
+
 .搜索按钮:hover,
 .次要按钮:hover,
 .商品链接:hover,
+.导出按钮:hover,
 .分段控件 button:hover {
   transform: translateY(-1px);
+}
+
+.数据源面板 {
+  padding: 16px 18px;
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.数据源标题,
+.操作栏 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.数据源标题 svg {
+  color: #3f6b4b;
+}
+
+.导入控件 {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 160px auto;
+  gap: 10px;
+}
+
+.来源列表 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.来源列表 span,
+.导入提示 {
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: #f1eee7;
+  margin: 0;
+}
+
+.导入提示 {
+  color: #1f6f3a;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .筛选面板 {
   padding: 14px 18px;
   display: grid;
-  grid-template-columns: 1.3fr 260px 280px;
+  grid-template-columns: 1.3fr 220px 240px 220px;
   gap: 16px;
   align-items: end;
+  margin-bottom: 16px;
 }
 
 .筛选块 {
@@ -227,12 +289,17 @@ select:focus {
   background: #2f6b44;
 }
 
+.操作栏 {
+  margin-bottom: 16px;
+}
+
 .结果概览 {
   padding: 14px 18px;
   display: flex;
   justify-content: space-between;
   gap: 20px;
   align-items: center;
+  margin-bottom: 16px;
 }
 
 .结果概览 div {
@@ -244,16 +311,20 @@ select:focus {
   font-size: 18px;
 }
 
-.结果概览 span,
 .结果概览 p {
   margin: 0;
-  color: #746d62;
-  font-size: 13px;
+}
+
+.错误提示 {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  color: #7f1d1d;
+  background: #fee2e2;
+  font-weight: 800;
 }
 
 .结果网格 {
-  max-width: 1240px;
-  margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
@@ -281,11 +352,22 @@ select:focus {
   overflow: hidden;
 }
 
-.图片框 img {
+.图片框 img,
+.无图 {
   width: 100%;
   height: 100%;
+}
+
+.图片框 img {
   object-fit: cover;
   display: block;
+}
+
+.无图 {
+  display: grid;
+  place-items: center;
+  color: #746d62;
+  font-weight: 800;
 }
 
 .平台标签 {
@@ -328,6 +410,7 @@ select:focus {
 }
 
 .店铺行,
+.来源行,
 .价格行,
 .库存行 {
   display: flex;
@@ -396,7 +479,8 @@ select:focus {
   }
 
   .搜索面板,
-  .筛选面板 {
+  .筛选面板,
+  .导入控件 {
     grid-template-columns: 1fr;
   }
 }

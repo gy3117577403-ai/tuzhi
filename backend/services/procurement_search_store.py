@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from services.procurement_models import ProcurementSearchRecord, ProcurementSearchRequest, ProcurementSummary
 from services.procurement_search_client import search_procurement
 
+
 _SEARCHES: dict[str, ProcurementSearchRecord] = {}
 
 
@@ -33,10 +34,10 @@ def create_procurement_search(request: ProcurementSearchRequest) -> ProcurementS
             recommended_count=recommended_count,
         ),
         warnings=[
-            "当前为采购搜索结果聚合，需人工确认型号和供应商。",
-            "当前 provider 为 mock，不接真实平台接口，不做违规爬虫。",
+            "当前为采购搜索结果聚合，需人工确认型号、供应商资质、库存和交期。",
+            "系统仅支持 mock、手动导入报价表、官方开放平台、企业授权 API 或供应商授权接口，不做违规爬虫。",
         ],
-        provider="mock",
+        provider="mock+manual_import+generic_json",
         sort_by=request.sort_by,
         image_search_enabled=request.image_search_enabled,
     )

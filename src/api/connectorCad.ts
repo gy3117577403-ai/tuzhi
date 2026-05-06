@@ -175,6 +175,7 @@ export type ProcurementSearchRequest = {
   platforms: string[];
   sort_by: ProcurementSortBy;
   image_search_enabled?: boolean;
+  source_types?: string[];
 };
 
 export type ProcurementResult = {
@@ -194,6 +195,10 @@ export type ProcurementResult = {
   match_score: number;
   risk_tags: string[];
   updated_at: string;
+  source_type?: string;
+  source_name?: string;
+  import_id?: string;
+  data_freshness?: string;
 };
 
 export type ProcurementSearchResponse = {
@@ -229,6 +234,71 @@ export async function getProcurementSearch(searchId: string): Promise<Procuremen
 
 export function procurementCsvUrl(searchId: string): string {
   return `${API_BASE}/api/procurement/search/${searchId}/export.csv`;
+}
+
+export type ProcurementSource = {
+  source_id: string;
+  source_name: string;
+  source_type: string;
+  enabled: boolean;
+  priority: number;
+  platform_label: string;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+  auth_mode?: string;
+  safe_mode?: boolean;
+};
+
+export type ProcurementImportResponse = {
+  import_id: string;
+  source_name: string;
+  source_type: string;
+  rows_total: number;
+  rows_imported: number;
+  rows_skipped: number;
+  warnings: string[];
+  offers: ProcurementResult[];
+};
+
+export async function importProcurementQuotes(file: File, sourceName: string, platformLabel: string): Promise<ProcurementImportResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('source_name', sourceName);
+  form.append('platform_label', platformLabel);
+  const response = await fetch(`${API_BASE}/api/procurement/import`, {
+    method: 'POST',
+    body: form,
+  });
+  return parseResponse(response);
+}
+
+export async function listProcurementSources(): Promise<{ sources: ProcurementSource[] }> {
+  const response = await fetch(`${API_BASE}/api/procurement/sources`);
+  return parseResponse(response);
+}
+
+export async function createProcurementSource(payload: Partial<ProcurementSource>): Promise<ProcurementSource> {
+  const response = await fetch(`${API_BASE}/api/procurement/sources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response);
+}
+
+export async function updateProcurementSource(sourceId: string, payload: Partial<ProcurementSource>): Promise<ProcurementSource> {
+  const response = await fetch(`${API_BASE}/api/procurement/sources/${sourceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response);
+}
+
+export async function deleteProcurementSource(sourceId: string): Promise<{ deleted: boolean; source_id: string }> {
+  const response = await fetch(`${API_BASE}/api/procurement/sources/${sourceId}`, { method: 'DELETE' });
+  return parseResponse(response);
 }
 
 export async function createTextConnectorJob(

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
@@ -74,9 +74,15 @@ from services.sop_wi_signoff_exporter import export_signed_sop_wi
 from services.registry_history import get_registry_item_history, verify_registry_history_signatures
 from services.registry_search import get_registry_stats, search_registry_items
 from services.procurement_exporter import procurement_search_to_csv
-from services.procurement_models import ProcurementSearchRequest
+from services.procurement_importer import import_procurement_file
+from services.procurement_models import (
+    ProcurementSearchRequest,
+    ProcurementSourceCreateRequest,
+    ProcurementSourceUpdateRequest,
+)
 from services.procurement_search_store import create_procurement_search as create_procurement_search_record
 from services.procurement_search_store import get_procurement_search as get_procurement_search_record
+from services.procurement_source_store import create_source, delete_source, list_sources, update_source
 
 app = FastAPI(title="Connector CAD Generator", version="0.2.0")
 cad_source_resolver = CadSourceResolver()
@@ -149,6 +155,14 @@ class ConfirmationItemPatchRequest(BaseModel):
 
 
 class ProcurementSearchApiRequest(ProcurementSearchRequest):
+    pass
+
+
+class ProcurementSourceCreateApiRequest(ProcurementSourceCreateRequest):
+    pass
+
+
+class ProcurementSourceUpdateApiRequest(ProcurementSourceUpdateRequest):
     pass
 
 
@@ -265,6 +279,36 @@ def export_procurement_search_csv(search_id: str) -> Response:
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="procurement_{search_id}.csv"'},
     )
+
+
+@app.post("/api/procurement/import")
+async def import_procurement_quote_file(
+    file: UploadFile = File(...),
+    source_name: str = Form("手动导入报价表"),
+    platform_label: str = Form("其他"),
+) -> dict[str, Any]:
+    result = await import_procurement_file(file, source_name=source_name, platform_label=platform_label)
+    return result.model_dump()
+
+
+@app.get("/api/procurement/sources")
+def get_procurement_sources() -> dict[str, Any]:
+    return {"sources": list_sources()}
+
+
+@app.post("/api/procurement/sources")
+def create_procurement_source(payload: ProcurementSourceCreateApiRequest) -> dict[str, Any]:
+    return create_source(payload).model_dump()
+
+
+@app.patch("/api/procurement/sources/{source_id}")
+def patch_procurement_source(source_id: str, payload: ProcurementSourceUpdateApiRequest) -> dict[str, Any]:
+    return update_source(source_id, payload).model_dump()
+
+
+@app.delete("/api/procurement/sources/{source_id}")
+def remove_procurement_source(source_id: str) -> dict[str, Any]:
+    return delete_source(source_id)
 
 
 @app.post("/api/connector-cad/jobs")

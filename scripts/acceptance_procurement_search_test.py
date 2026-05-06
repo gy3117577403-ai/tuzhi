@@ -78,8 +78,8 @@ def assert_match_sort(results: list[dict]) -> None:
 
 def assert_csv(search_id: str) -> None:
     csv_text = request_text(f"/api/procurement/search/{search_id}/export.csv")
-    assert "商品标题" in csv_text, "CSV header missing 商品标题"
-    assert "平台" in csv_text, "CSV header missing 平台"
+    assert "title" in csv_text, "CSV header missing title"
+    assert "platform" in csv_text, "CSV header missing platform"
     rows = list(csv.DictReader(io.StringIO(csv_text)))
     assert len(rows) >= 8, f"CSV expected at least 8 rows, got {len(rows)}"
 

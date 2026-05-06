@@ -7,20 +7,21 @@ from services.procurement_models import ProcurementSearchRecord
 
 
 CSV_COLUMNS = [
-    "平台",
-    "商品标题",
-    "店铺",
-    "价格",
-    "价格类型",
-    "发货地",
-    "库存",
-    "起订量",
-    "匹配度",
-    "风险标签",
-    "品牌",
-    "料号",
-    "关键参数",
-    "商品链接",
+    "search_id",
+    "query",
+    "source_type",
+    "source_name",
+    "platform",
+    "title",
+    "shop_name",
+    "price",
+    "shipping_location",
+    "stock_status",
+    "moq",
+    "part_number",
+    "match_score",
+    "risk_tags",
+    "product_url",
 ]
 
 
@@ -31,20 +32,21 @@ def procurement_search_to_csv(record: ProcurementSearchRecord) -> str:
     for item in record.results:
         writer.writerow(
             {
-                "平台": item.platform,
-                "商品标题": item.title,
-                "店铺": item.shop_name,
-                "价格": item.price,
-                "价格类型": item.price_type,
-                "发货地": item.shipping_location,
-                "库存": item.stock_status,
-                "起订量": item.moq,
-                "匹配度": item.match_score,
-                "风险标签": "；".join(item.risk_tags),
-                "品牌": item.key_parameters.get("brand", ""),
-                "料号": item.key_parameters.get("part_number", ""),
-                "关键参数": "；".join(f"{key}:{value}" for key, value in item.key_parameters.items()),
-                "商品链接": item.product_url,
+                "search_id": record.search_id,
+                "query": record.query,
+                "source_type": item.source_type,
+                "source_name": item.source_name,
+                "platform": item.platform,
+                "title": item.title,
+                "shop_name": item.shop_name,
+                "price": item.price,
+                "shipping_location": item.shipping_location,
+                "stock_status": item.stock_status,
+                "moq": item.moq,
+                "part_number": item.key_parameters.get("part_number", ""),
+                "match_score": item.match_score,
+                "risk_tags": "；".join(item.risk_tags),
+                "product_url": item.product_url,
             }
         )
     return "\ufeff" + buffer.getvalue()

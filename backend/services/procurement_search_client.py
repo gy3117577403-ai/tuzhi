@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import json
+import os
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
+from services.procurement_data_normalizer import normalize_offer_row, offer_matches_query
+from services.procurement_importer import load_imported_offers
 from services.procurement_models import ProcurementResult, ProcurementSearchRequest
 from services.procurement_ranker import sort_procurement_results
 
@@ -51,6 +57,9 @@ def _item(
         match_score=match_score,
         risk_tags=risk_tags,
         updated_at=datetime.now(timezone.utc).isoformat(),
+        source_type="mock",
+        source_name="内置 mock 商品数据",
+        data_freshness="mock",
     )
 
 
@@ -61,15 +70,74 @@ def mock_procurement_results(query: str) -> list[ProcurementResult]:
         _item(id="jd-001", platform="京东", title=f"{part} 连接器外壳 端子配套 汽车插件", shop_name="工控电子自营专区", price=6.5, shipping_location="江苏 苏州", stock_status="现货 380 件", moq=1, key_parameters={"brand": "TE 同款", "part_number": part, "positions": "4P", "color": "蓝色", "type": "线束外壳"}, match_score=0.92, risk_tags=["完全匹配", "价格含平台服务费"], product_url="https://example.com/jd/1-968970-1", image_url=_svg_data_url("#2f73d8")),
         _item(id="1688-001", platform="1688", title=f"汽车连接器 {part} 蓝色胶壳 可配端子", shop_name="东莞精密连接器厂", price=1.26, shipping_location="广东 东莞", stock_status="库存 9800 件", moq=500, key_parameters={"brand": "兼容料", "part_number": part, "positions": "4P", "color": "蓝色", "type": "批发胶壳"}, match_score=0.89, risk_tags=["完全匹配", "起订量较高"], product_url="https://example.com/1688/1-968970-1", image_url=_svg_data_url("#2f73d8")),
         _item(id="taobao-002", platform="淘宝", title="8-968970-1 相近型号蓝色汽车接插件", shop_name="线束端子配件仓", price=2.9, shipping_location="浙江 宁波", stock_status="现货 600 件", moq=20, key_parameters={"brand": "TE 同款", "part_number": "8-968970-1", "positions": "4P", "color": "蓝色", "type": "汽车插件"}, match_score=0.71, risk_tags=["相近型号风险", "不能直接替代需确认"], product_url="https://example.com/taobao/8-968970-1", image_url=_svg_data_url("#3777d4")),
-        _item(id="other-001", platform="其他", title=f"TE Connectivity {part} 连接器采购代订", shop_name="Mouser 代购报价", price=12.4, shipping_location="海外仓", stock_status="预计 2-3 周", moq=1, key_parameters={"brand": "TE Connectivity", "part_number": part, "positions": "4P", "color": "蓝色", "type": "品牌渠道"}, match_score=0.94, risk_tags=["完全匹配", "交期不确定", "需核对含税运费"], product_url="https://example.com/distributor/1-968970-1", image_url=_svg_data_url("#2f73d8")),
+        _item(id="other-001", platform="其他", title=f"TE Connectivity {part} 连接器采购代询", shop_name="Mouser 代购报价", price=12.4, shipping_location="海外仓", stock_status="预计 2-3 周", moq=1, key_parameters={"brand": "TE Connectivity", "part_number": part, "positions": "4P", "color": "蓝色", "type": "品牌渠道"}, match_score=0.94, risk_tags=["完全匹配", "交期不确定", "需核对含税运费"], product_url="https://example.com/distributor/1-968970-1", image_url=_svg_data_url("#2f73d8")),
         _item(id="1688-002", platform="1688", title="6-968970-1 相近规格连接器胶壳 批发", shop_name="温州端子连接器批发", price=0.18, price_type="abnormal", shipping_location="浙江 温州", stock_status="库存 20000 件", moq=1000, key_parameters={"brand": "未知", "part_number": "6-968970-1", "positions": "4P", "color": "蓝色", "type": "批发低价"}, match_score=0.63, risk_tags=["相近型号风险", "价格异常", "参数不完整"], product_url="https://example.com/1688/6-968970-1", image_url=_svg_data_url("#2f73d8")),
         _item(id="jd-002", platform="京东", title=f"{part} 蓝色连接器套装 含端子密封塞", shop_name="汽车线束配件旗舰店", price=9.9, shipping_location="上海", stock_status="现货 88 套", moq=1, key_parameters={"brand": "兼容套装", "part_number": part, "positions": "4P", "color": "蓝色", "type": "套装"}, match_score=0.88, risk_tags=["完全匹配", "套装价格不可直接对比单壳"], product_url="https://example.com/jd/kit-1-968970-1", image_url=_svg_data_url("#2f73d8")),
         _item(id="taobao-003", platform="淘宝", title="圆形防水连接器 4芯 黑色 航空插头", shop_name="工业圆形航空插头店", price=18.5, shipping_location="浙江 宁波", stock_status="现货 260 件", moq=2, key_parameters={"brand": "未知", "part_number": "非目标料号", "positions": "4芯", "color": "黑色", "type": "圆形防水连接器"}, match_score=0.42, risk_tags=["图片相似但型号不匹配", "非目标料号"], product_url="https://example.com/taobao/round-connector", image_url=_svg_data_url("#18191b", "round")),
     ]
 
 
+def _generic_json_items(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    for key in ("items", "results", "data", "offers"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def generic_json_results(query: str) -> list[ProcurementResult]:
+    base_url = os.getenv("PROCUREMENT_GENERIC_JSON_BASE_URL", "").strip()
+    if not base_url:
+        return []
+    api_key = os.getenv("PROCUREMENT_GENERIC_JSON_API_KEY", "").strip()
+    auth_header = os.getenv("PROCUREMENT_GENERIC_JSON_AUTH_HEADER", "Authorization").strip() or "Authorization"
+    separator = "&" if "?" in base_url else "?"
+    url = f"{base_url}{separator}{urlencode({'q': query})}"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers[auth_header] = api_key if auth_header.lower() not in {"authorization"} else f"Bearer {api_key}"
+    try:
+        request = Request(url, headers=headers, method="GET")
+        with urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return []
+
+    offers: list[ProcurementResult] = []
+    for index, row in enumerate(_generic_json_items(payload), start=1):
+        offer, _warning = normalize_offer_row(
+            row,
+            row_index=index,
+            source_id="generic-json",
+            source_name="授权 generic_json 接口",
+            source_type="generic_json",
+            platform_label="其他",
+            import_id=None,
+            query_hint=query,
+        )
+        if offer:
+            offers.append(offer)
+    return offers
+
+
 def search_procurement(request: ProcurementSearchRequest) -> list[ProcurementResult]:
-    provider_results = mock_procurement_results(request.query)
+    source_types = set(request.source_types or ["mock", "csv_upload", "excel_upload", "generic_json"])
+    provider_results: list[ProcurementResult] = []
+    if "mock" in source_types:
+        provider_results.extend(mock_procurement_results(request.query))
+    if "csv_upload" in source_types or "excel_upload" in source_types:
+        provider_results.extend(item for item in load_imported_offers() if item.source_type in source_types)
+    if "generic_json" in source_types:
+        provider_results.extend(generic_json_results(request.query))
+
     allowed = set(request.platforms or ["淘宝", "京东", "1688", "其他"])
-    filtered = [item for item in provider_results if item.platform in allowed]
+    filtered = [
+        item
+        for item in provider_results
+        if item.platform in allowed and (item.source_type == "mock" or offer_matches_query(item, request.query))
+    ]
     return sort_procurement_results(filtered, sort_by=request.sort_by, target_location=request.target_location)

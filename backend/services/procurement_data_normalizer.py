@@ -26,6 +26,7 @@ FIELD_ALIASES = {
     "color": ["颜色", "color"],
     "type": ["类型", "type", "category"],
     "notes": ["备注", "notes", "note"],
+    "source_url": ["source_url", "来源链接", "link"],
 }
 
 
@@ -138,6 +139,8 @@ def normalize_offer_row(
             updated_at=datetime.now(timezone.utc).isoformat(),
             source_type=source_type,  # type: ignore[arg-type]
             source_name=source_name,
+            source_compliance_note="搜索摘要或授权数据源结果，未访问平台详情页。",
+            requires_manual_open=True,
             import_id=import_id,
             data_freshness="manual_import" if source_type in {"csv_upload", "excel_upload"} else "live_api",
         ),

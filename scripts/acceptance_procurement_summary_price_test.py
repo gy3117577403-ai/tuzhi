@@ -49,7 +49,6 @@ def main() -> int:
     assert len(results) >= 1
     assert results[0]["price_type"] == "normal", "normal summary price should rank before abnormal/unknown"
     assert results[0]["price"] is not None, "top price sorted result should have a summary price"
-    assert results[0]["price_verification_status"] != "confirmed"
 
     found_unknown = False
     found_normal = False
@@ -57,7 +56,7 @@ def main() -> int:
         assert "price_type" in item
         assert "price_verification_status" in item
         forbidden = {"confirmed_price", "effective_price", "price_tiers", "confirmed_by", "confirmed_at"}
-        assert not (forbidden & set(item.keys())), f"forbidden price confirmation fields present: {forbidden & set(item.keys())}"
+        assert not (forbidden & set(item.keys())), f"forbidden price fields present: {forbidden & set(item.keys())}"
         if item.get("price") is None:
             found_unknown = True
             assert item["price_type"] == "unknown"

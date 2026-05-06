@@ -200,6 +200,8 @@ export type ProcurementResult = {
   updated_at: string;
   source_type?: string;
   source_name?: string;
+  source_compliance_note?: string;
+  requires_manual_open?: boolean;
   import_id?: string;
   data_freshness?: string;
 };
@@ -217,6 +219,7 @@ export type ProcurementSearchResponse = {
     platform_counts: Record<string, number>;
     lowest_price: number | null;
     recommended_count: number;
+    provider_summary?: Record<string, any>;
   };
   warnings: string[];
 };

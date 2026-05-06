@@ -6,11 +6,19 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from services.procurement_data_normalizer import normalize_offer_row, offer_matches_query
 from services.procurement_importer import load_imported_offers
 from services.procurement_models import ProcurementResult, ProcurementSearchRequest
 from services.procurement_ranker import sort_procurement_results
+from services.procurement_serpapi_provider import search_serpapi_procurement
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(BACKEND_ROOT / ".env", override=True)
 
 
 def _svg_data_url(color: str, shape: str = "rect") -> str:
@@ -164,3 +172,47 @@ def search_procurement(request: ProcurementSearchRequest) -> list[ProcurementRes
         if item.platform in allowed and (item.source_type == "mock" or offer_matches_query(item, request.query))
     ]
     return sort_procurement_results(filtered, sort_by=request.sort_by, target_location=request.target_location)
+
+
+def search_procurement_with_summary(request: ProcurementSearchRequest) -> tuple[list[ProcurementResult], dict[str, Any], list[str]]:
+    provider = (os.getenv("PROCUREMENT_SEARCH_PROVIDER") or "").strip().lower()
+    if not request.source_types and provider == "serpapi":
+        serp_results, provider_summary, warnings = search_serpapi_procurement(request.query)
+        if serp_results:
+            allowed = set(request.platforms or ["淘宝", "京东", "1688", "其他"])
+            filtered = [item for item in serp_results if item.platform in allowed]
+            return sort_procurement_results(filtered, sort_by=request.sort_by, target_location=request.target_location), provider_summary, warnings
+        provider_summary["provider_mode"] = "fallback"
+        provider_summary["fallback_used"] = True
+        warnings.append("真实搜索失败或无可用结果，当前展示模拟数据。")
+        mock = mock_procurement_results(request.query)
+        provider_summary["mock_count"] = len(mock)
+        allowed = set(request.platforms or ["淘宝", "京东", "1688", "其他"])
+        filtered = [item for item in mock if item.platform in allowed]
+        return sort_procurement_results(filtered, sort_by=request.sort_by, target_location=request.target_location), provider_summary, warnings
+
+    if not request.source_types:
+        mock = mock_procurement_results(request.query)
+        provider_summary = {
+            "provider_mode": "mock",
+            "serpapi_configured": False,
+            "serpapi_shopping_count": 0,
+            "serpapi_site_search_count": 0,
+            "mock_count": len(mock),
+            "fallback_used": True,
+        }
+        warnings = ["真实采购搜索未配置，当前为模拟数据。"]
+        allowed = set(request.platforms or ["淘宝", "京东", "1688", "其他"])
+        filtered = [item for item in mock if item.platform in allowed]
+        return sort_procurement_results(filtered, sort_by=request.sort_by, target_location=request.target_location), provider_summary, warnings
+
+    results = search_procurement(request)
+    provider_summary = {
+        "provider_mode": "mock",
+        "serpapi_configured": False,
+        "serpapi_shopping_count": 0,
+        "serpapi_site_search_count": 0,
+        "mock_count": len(results),
+        "fallback_used": "mock" in set(request.source_types or []),
+    }
+    return results, provider_summary, []

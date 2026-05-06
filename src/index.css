@@ -312,8 +312,8 @@ select:focus {
 
 .结果概览 {
   padding: 14px 18px;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr minmax(260px, 0.8fr) auto;
   gap: 20px;
   align-items: center;
   margin-bottom: 16px;
@@ -329,11 +329,40 @@ select:focus {
 }
 
 .图片提示,
+.真实提示,
+.模拟提示,
 .错误提示 {
   margin-bottom: 16px;
   padding: 12px 14px;
   border-radius: 8px;
   font-weight: 800;
+}
+
+.真实提示 {
+  color: #155e75;
+  background: #e0f2fe;
+}
+
+.模拟提示 {
+  color: #854d0e;
+  background: #fef3c7;
+}
+
+.来源状态 {
+  padding: 10px 12px;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.来源状态.真实搜索 {
+  background: #e0f2fe;
+  color: #155e75;
+}
+
+.来源状态.模拟数据 {
+  background: #fef3c7;
+  color: #854d0e;
 }
 
 .图片提示 {
@@ -432,6 +461,7 @@ select:focus {
 }
 
 .信息行,
+.来源行,
 .价格行 {
   display: flex;
   align-items: center;

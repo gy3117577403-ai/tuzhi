@@ -9,7 +9,15 @@ Platform = Literal["淘宝", "京东", "1688", "其他"]
 SortBy = Literal["price", "location", "match"]
 PriceType = Literal["normal", "abnormal", "negotiable", "sample", "unknown"]
 PriceVerificationStatus = Literal["search_summary_only", "needs_confirmation"]
-SourceType = Literal["mock", "csv_upload", "excel_upload", "generic_json", "supplier_api"]
+SourceType = Literal[
+    "mock",
+    "csv_upload",
+    "excel_upload",
+    "generic_json",
+    "supplier_api",
+    "serpapi_shopping_summary",
+    "serpapi_site_search_summary",
+]
 AuthMode = Literal["none", "api_key", "bearer", "custom"]
 
 
@@ -44,6 +52,8 @@ class ProcurementResult(BaseModel):
     updated_at: str
     source_type: SourceType = "mock"
     source_name: str = "内置 mock 数据"
+    source_compliance_note: str = "模拟数据，仅用于本地功能验证。"
+    requires_manual_open: bool = True
     import_id: str | None = None
     data_freshness: Literal["manual_import", "live_api", "mock"] = "mock"
 
@@ -53,6 +63,7 @@ class ProcurementSummary(BaseModel):
     platform_counts: dict[str, int]
     lowest_price: float | None = None
     recommended_count: int
+    provider_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProcurementSearchRecord(BaseModel):

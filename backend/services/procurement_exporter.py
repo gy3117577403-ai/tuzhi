@@ -26,6 +26,8 @@ CSV_COLUMNS = [
     "part_number",
     "match_score",
     "risk_tags",
+    "source_type",
+    "requires_manual_open",
     "product_url",
 ]
 
@@ -56,6 +58,8 @@ def procurement_search_to_csv(record: ProcurementSearchRecord) -> str:
                 "part_number": item.key_parameters.get("part_number", ""),
                 "match_score": item.match_score,
                 "risk_tags": "；".join(item.risk_tags),
+                "source_type": item.source_type,
+                "requires_manual_open": item.requires_manual_open,
                 "product_url": item.product_url,
             }
         )

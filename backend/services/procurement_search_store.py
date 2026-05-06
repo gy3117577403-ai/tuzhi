@@ -6,14 +6,14 @@ from collections import Counter
 from fastapi import HTTPException
 
 from services.procurement_models import ProcurementSearchRecord, ProcurementSearchRequest, ProcurementSummary
-from services.procurement_search_client import search_procurement
+from services.procurement_search_client import search_procurement_with_summary
 
 
 _SEARCHES: dict[str, ProcurementSearchRecord] = {}
 
 
 def create_procurement_search(request: ProcurementSearchRequest) -> ProcurementSearchRecord:
-    results = search_procurement(request)
+    results, provider_summary, provider_warnings = search_procurement_with_summary(request)
     normal_prices = [item.price for item in results if item.price_type == "normal" and item.price is not None]
     platform_counts = dict(Counter(item.platform for item in results))
     recommended_count = sum(
@@ -32,12 +32,14 @@ def create_procurement_search(request: ProcurementSearchRequest) -> ProcurementS
             platform_counts=platform_counts,
             lowest_price=min(normal_prices) if normal_prices else None,
             recommended_count=recommended_count,
+            provider_summary=provider_summary,
         ),
         warnings=[
-            "当前为采购搜索结果聚合，需人工确认型号、供应商资质、库存和交期。",
-            "系统仅支持 mock、手动导入报价表、官方开放平台、企业授权 API 或供应商授权接口，不做违规爬虫。",
+            *provider_warnings,
+            "价格、库存、发货地均来自搜索摘要或授权数据源，需打开商品链接确认。",
+            "系统不访问平台详情页，不绕过登录、验证码、风控或反爬限制。",
         ],
-        provider="mock+manual_import+generic_json",
+        provider=str(provider_summary.get("provider_mode") or "mock"),
         sort_by=request.sort_by,
         image_search_enabled=request.image_search_enabled,
     )

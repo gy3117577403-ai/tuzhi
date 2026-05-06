@@ -77,7 +77,6 @@ export default function App() {
         platforms: platform === '全部' ? PLATFORM_VALUES : [platform],
         sort_by: sortBy,
         image_search_enabled: Boolean(imageName),
-        source_types: ['mock'],
       });
       setSearchResult(data);
     } catch (err) {
@@ -120,7 +119,6 @@ export default function App() {
         platforms: platform === '全部' ? PLATFORM_VALUES : [platform],
         sort_by: sortBy,
         image_search_enabled: true,
-        source_types: ['mock'],
       });
       setSearchResult(data);
     } catch (err) {
@@ -143,6 +141,10 @@ export default function App() {
 
   const abnormalCount = (searchResult?.results || []).filter((item) => item.price_type === 'abnormal' || item.risk_tags?.includes('价格异常')).length;
   const riskCount = visibleResults.filter(hasRisk).length;
+  const providerSummary = searchResult?.summary?.provider_summary || {};
+  const providerMode = providerSummary.provider_mode || searchResult?.provider || 'mock';
+  const usingRealSearch = providerMode === 'serpapi';
+  const fallbackUsed = Boolean(providerSummary.fallback_used) || providerMode === 'fallback' || providerMode === 'mock';
 
   return (
     <main className="采购页面">
@@ -183,7 +185,7 @@ export default function App() {
         </div>
         <button type="button" className="搜索按钮" onClick={runSearch} disabled={busy || !query.trim()}>
           <Search size={19} />
-          {busy ? '正在搜索...' : '搜索'}
+          {busy ? '正在搜索采购渠道，请稍候' : '搜索采购结果'}
         </button>
       </section>
 
@@ -253,6 +255,12 @@ export default function App() {
           <strong>{busy ? '正在搜索采购结果...' : `${visibleResults.length} 条商品结果`}</strong>
           <span>已隐藏异常价格 {hideAbnormal ? abnormalCount : 0} 条，高风险提示 {riskCount} 条</span>
         </div>
+        <div className={`来源状态 ${usingRealSearch ? '真实搜索' : '模拟数据'}`}>
+          <strong>{usingRealSearch ? '当前数据来源：真实搜索' : '当前数据来源：模拟数据'}</strong>
+          <span>
+            SerpAPI摘要 {providerSummary.serpapi_shopping_count || 0} 条，站内摘要 {providerSummary.serpapi_site_search_count || 0} 条，mock {providerSummary.mock_count || 0} 条
+          </span>
+        </div>
         <div className="导出区">
           {searchResult?.search_id ? (
             <a className="导出按钮" href={procurementCsvUrl(searchResult.search_id)}>
@@ -261,6 +269,15 @@ export default function App() {
           ) : null}
         </div>
       </section>
+
+      {fallbackUsed ? (
+        <div className="模拟提示">真实搜索失败或未配置，当前展示模拟数据。</div>
+      ) : (
+        <div className="真实提示">当前结果来自搜索引擎摘要，价格、库存、发货地需打开链接确认。</div>
+      )}
+      {(searchResult?.warnings || []).map((warning) => (
+        <div className="图片提示" key={warning}>{warning}</div>
+      ))}
 
       {imageName && !imageKeywordResult ? <div className="图片提示">已选择图片：{imageName}。</div> : null}
       {error ? <div className="错误提示">{error}</div> : null}
@@ -277,6 +294,10 @@ export default function App() {
               <div className="信息行">
                 <span>{item.shop_name}</span>
                 <span><MapPin size={13} />{item.shipping_location}</span>
+              </div>
+              <div className="来源行">
+                <span>{item.source_name || '搜索摘要'}</span>
+                <span>{item.source_type || 'summary'}</span>
               </div>
               <div className="价格行">
                 {(() => {
